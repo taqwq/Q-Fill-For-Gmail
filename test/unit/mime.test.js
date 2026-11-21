@@ -79,7 +79,7 @@ test('parses a single-part HTML message', () => {
 
 test('survives a message with no payload', () => {
   const parsed = parseMessage({});
-  assert.deepEqual(parsed, { id: '', receivedAt: 0, subject: '', from: '', text: '', html: '' });
+  assert.deepEqual(parsed, { id: '', receivedAt: 0, subject: '', from: '', authResults: [], spam: false, text: '', html: '' });
 });
 
 test('extracts a readable sender name', () => {
@@ -87,4 +87,39 @@ test('extracts a readable sender name', () => {
   assert.equal(senderName('Acme <a@acme.test>'), 'Acme');
   assert.equal(senderName('a@acme.test'), 'a@acme.test');
   assert.equal(senderName(''), '');
+});
+
+test('decodes Japanese bodies in ISO-2022-JP, Shift_JIS and EUC-JP', () => {
+  const expected = 'あなたの認証コードは１２３４５６です。';
+  const bodies = {
+    'ISO-2022-JP': 'GyRCJCIkSiQ_JE5HJz5aJTMhPCVJJE8jMSMyIzMjNCM1IzYkRyQ5ISMbKEI=',
+    'Shift_JIS': 'gqCCyIK9gsyURo_Yg1KBW4Nogs2CUIJRglKCU4JUglWCxYK3gUI=',
+    'CP932': 'gqCCyIK9gsyURo_Yg1KBW4Nogs2CUIJRglKCU4JUglWCxYK3gUI=',
+    'EUC-JP': 'pKKkyqS_pM7Hp77apbOhvKXJpM-jsaOyo7OjtKO1o7akx6S5oaM='
+  };
+  for (const [charset, data] of Object.entries(bodies)) {
+    const parsed = parseMessage({
+      payload: {
+        mimeType: 'text/plain',
+        headers: [{ name: 'Content-Type', value: `text/plain; charset="${charset}"` }, { name: 'Subject', value: '認証コード' }],
+        body: { data }
+      }
+    });
+    assert.equal(parsed.text, expected, charset);
+  }
+});
+
+test('keeps every Authentication-Results header in order and reads the Spam label', () => {
+  const parsed = parseMessage({
+    labelIds: ['SPAM', 'UNREAD'],
+    payload: {
+      headers: [
+        { name: 'Authentication-Results', value: 'mx.google.com; dmarc=pass header.from=a.example' },
+        { name: 'Received', value: 'from x' },
+        { name: 'authentication-results', value: 'forged.example; dmarc=pass' }
+      ]
+    }
+  });
+  assert.deepEqual(parsed.authResults, ['mx.google.com; dmarc=pass header.from=a.example', 'forged.example; dmarc=pass']);
+  assert.equal(parsed.spam, true);
 });

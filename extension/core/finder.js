@@ -9,6 +9,7 @@
 
 import { extractCode } from './extract.js';
 import { parseMessage } from './mime.js';
+import { AUTO_FILL, checkSender } from './sender.js';
 
 /**
  * @typedef {object} Hit
@@ -19,6 +20,9 @@ import { parseMessage } from './mime.js';
  * @property {number} receivedAt
  * @property {string} from
  * @property {string} subject
+ * @property {import('./sender.js').SenderCheck} sender - Authenticated sender domain.
+ * @property {boolean} spam
+ * @property {string} verdict - From options.classify: 'match', 'trusted', 'mismatch', ...
  */
 
 /**
@@ -62,15 +66,25 @@ function abortError() {
  * @param {number} options.waitMs - How long to keep checking for a new message.
  * @param {number} options.pollMs - Time between checks.
  * @param {number} options.maxPerCheck - Messages to list per check.
+ * @param {(hit: Hit) => string} options.classify - Returns the verdict for a hit
+ *   (see sender.js verdict()). Only 'match' and 'trusted' are returned without
+ *   waiting; anything else is a blocked code.
+ * @param {boolean} [options.stopOnBlocked] - Return a blocked code as soon as a
+ *   complete check finds one and nothing better, instead of waiting for a code
+ *   that may be filled. The popup uses this to explain the problem at once.
  * @param {Set<string>} [options.skipIds] - Messages whose code was already used.
  * @param {AbortSignal} [options.signal]
- * @param {(progress: { phase: 'checking'|'waiting', deadline: number }) => void} [options.onProgress]
- * @returns {Promise<Hit|null>} The newest message with a code, or null when time ran out.
+ * @param {(progress: { phase: 'checking'|'waiting', deadline: number, blocked: Hit|null }) => void} [options.onProgress]
+ * @param {(blocked: Hit|null) => void} [options.onBlocked] - Called when the newest
+ *   blocked code changes, so the popup can offer it while the wait goes on.
+ * @returns {Promise<Hit|null>} The newest message whose code may be filled.
+ *   When there is none, the newest blocked one (check hit.verdict), or null.
  */
 export async function findNewestCode(deps, options) {
   const now = deps.now ?? Date.now;
   const wait = deps.sleep ?? sleep;
-  const { lookbackMs, waitMs, pollMs, maxPerCheck, skipIds = new Set(), signal, onProgress } = options;
+  const { lookbackMs, waitMs, pollMs, maxPerCheck, skipIds = new Set(), signal, onProgress, onBlocked, classify, stopOnBlocked = false } = options;
+  if (typeof classify !== 'function') throw new TypeError('findNewestCode needs options.classify');
 
   const startedAt = now();
   const since = startedAt - lookbackMs;
@@ -80,10 +94,12 @@ export async function findNewestCode(deps, options) {
   let retriedAuth = false;
   let first = true;
   let lastError = null;
+  /** @type {Hit|null} */
+  let blocked = null;
 
   for (;;) {
     if (signal?.aborted) throw abortError();
-    onProgress?.({ phase: first ? 'checking' : 'waiting', deadline });
+    onProgress?.({ phase: first ? 'checking' : 'waiting', deadline, blocked });
     first = false;
 
     // True when this check could not see everything, so a newer code may exist.
@@ -119,15 +135,24 @@ export async function findNewestCode(deps, options) {
           return;
         }
         const match = extractCode(message);
-        seen.set(id, match ? {
+        if (!match) {
+          seen.set(id, null);
+          return;
+        }
+        /** @type {Hit} */
+        const hit = {
           id,
           code: match.code,
           score: match.score,
           reason: match.reason,
           receivedAt: message.receivedAt,
           from: message.from,
-          subject: message.subject
-        } : null);
+          subject: message.subject,
+          sender: checkSender(message),
+          spam: message.spam,
+          verdict: ''
+        };
+        seen.set(id, hit);
       });
       retriedAuth = false;
     } catch (error) {
@@ -143,13 +168,22 @@ export async function findNewestCode(deps, options) {
       incomplete = true;
     }
 
-    const newest = [...seen.values()]
+    // Classify on every check: the verdict depends on the page, which the
+    // caller re-reads, and on pairs you may have approved meanwhile.
+    const usable = [...seen.values()]
       .filter(hit => hit && !skipIds.has(hit.id))
-      .sort((a, b) => b.receivedAt - a.receivedAt)[0];
+      .map(hit => Object.assign(hit, { verdict: String(classify(hit)) }))
+      .sort((a, b) => b.receivedAt - a.receivedAt);
+    const newest = usable.find(hit => AUTO_FILL.has(hit.verdict));
+    const previousBlocked = blocked;
+    blocked = usable.find(hit => !AUTO_FILL.has(hit.verdict)) ?? null;
+    if (blocked?.id !== previousBlocked?.id || blocked?.verdict !== previousBlocked?.verdict) onBlocked?.(blocked);
     const timeLeft = now() + pollMs <= deadline;
 
     if (newest && (!incomplete || !timeLeft)) return newest;
+    if (blocked && stopOnBlocked && !incomplete) return blocked;
     if (!timeLeft) {
+      if (blocked) return blocked;
       if (incomplete && lastError) throw lastError;
       return null;
     }

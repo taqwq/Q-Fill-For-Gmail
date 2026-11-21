@@ -6,15 +6,15 @@
  */
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { addEmail, installFakeGmail, launch, ROOT, runFind, startServer } from '../test/e2e/harness.js';
+import { BASE, addEmail, installFakeGmail, launch, ROOT, runFind } from '../test/e2e/harness.js';
 
 const OUT = join(ROOT, 'docs/images');
 await mkdir(OUT, { recursive: true });
 
-const server = await startServer();
+
 const env = await launch({ deviceScaleFactor: 2 });
 await installFakeGmail(env.worker);
-const base = `http://localhost:${server.port}/playground`;
+const base = BASE;
 
 async function popupShot(name, { scheme = 'light', prepare } = {}) {
   const page = await env.context.newPage();
@@ -71,4 +71,4 @@ await env.worker.evaluate(() => chrome.storage.local.set({ clientId: '', email: 
 await popupShot('popup-setup');
 
 await env.close();
-await server.close();
+

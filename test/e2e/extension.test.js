@@ -1,22 +1,24 @@
-import { after, before, test } from 'node:test';
+import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { addEmail, installFakeGmail, launch, runFind, startServer } from './harness.js';
+import { BASE, addEmail, findUntilBlocked, installFakeGmail, lastResult, launch, popupSend, runFind, waitForResult } from './harness.js';
 
 let env;
-let server;
-let base;
+const base = BASE;
 
 before(async () => {
-  server = await startServer();
-  base = `http://localhost:${server.port}/playground`;
   env = await launch();
   await installFakeGmail(env.worker);
 });
 
 after(async () => {
   await env?.close();
-  await server?.close();
+});
+
+// Each test starts with an empty inbox, so a code left over from an earlier
+// test cannot be filled by mistake.
+beforeEach(async () => {
+  await env.worker.evaluate(() => { globalThis.__inbox.length = 0; });
 });
 
 async function open(path) {
@@ -30,6 +32,7 @@ test('the service worker starts and the manifest asks for no site access', async
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.permissions.sort(), ['activeTab', 'identity', 'scripting', 'storage']);
   assert.equal(manifest.content_scripts, undefined);
+  assert.deepEqual(manifest.optional_host_permissions, ['https://*/*']);
 });
 
 test('fills a single one-time-code field', async () => {
@@ -127,7 +130,7 @@ test('fills a field inside a same-origin iframe and leaves the search box alone'
 
 test('skips a cross-origin frame it may not access, without failing', async () => {
   await addEmail(env.worker, 'Payment check', 'Your one-time code is 118822');
-  const page = await open('iframe.html?cross=1');
+  const page = await open('iframe.html?cross=blocked');
   await page.frameLocator('#frame').locator('#code').waitFor();
   const result = await runFind(env, page);
   assert.equal(result.status, 'found');
@@ -164,6 +167,161 @@ test('the popup shows the result with the code', async () => {
   await page.close();
 });
 
+// ---------------------------------------------------------------------------
+// Sender and site must match
+
+test('a code from another site is not filled, and the page never sees it', async () => {
+  await addEmail(env.worker, 'Your verification code', 'Your verification code is 573920.', 0, { from: 'Shop <no-reply@shop.other.test>' });
+  const page = await open('single.html');
+  const blocked = await findUntilBlocked(env, page);
+  assert.equal(blocked.verdict, 'mismatch');
+  assert.equal(blocked.senderDomain, 'other.test');
+  assert.equal(blocked.site, 'acme.test');
+  assert.equal(blocked.code, '573920');
+  await page.waitForTimeout(500);
+  assert.equal(await page.inputValue('#otp'), '');
+  assert.ok(!(await page.content()).includes('573920'));
+  await popupSend(env, { type: 'cancel' });
+  assert.equal((await waitForResult(env.worker)).status, 'cancelled');
+  await page.close();
+});
+
+test('a newer code from another site does not hide the matching one', async () => {
+  await addEmail(env.worker, 'Your Acme code', 'Your verification code is 610042.', 20_000);
+  await addEmail(env.worker, 'Your code', 'Your verification code is 999111.', 0, { from: 'Shop <no-reply@shop.other.test>' });
+  const page = await open('single.html');
+  const result = await runFind(env, page);
+  assert.equal(result.status, 'filled');
+  assert.equal(result.code, '610042');
+  assert.equal(await page.inputValue('#otp'), '610042');
+  await page.close();
+});
+
+test('a forged From without Gmail authentication is not filled', async () => {
+  await addEmail(env.worker, 'Your verification code', 'Your verification code is 424242.', 0, { auth: null });
+  const page = await open('single.html');
+  const blocked = await findUntilBlocked(env, page);
+  assert.equal(blocked.verdict, 'unverified');
+  assert.equal(await page.inputValue('#otp'), '');
+  await popupSend(env, { type: 'cancel' });
+  await waitForResult(env.worker);
+  await page.close();
+});
+
+test('a code in Spam is not filled without asking', async () => {
+  await addEmail(env.worker, 'Your verification code', 'Your verification code is 515151.', 0, { spam: true });
+  const page = await open('single.html');
+  const blocked = await findUntilBlocked(env, page);
+  assert.equal(blocked.verdict, 'spam');
+  assert.equal(await page.inputValue('#otp'), '');
+  await popupSend(env, { type: 'cancel' });
+  await waitForResult(env.worker);
+  await page.close();
+});
+
+test('confirming a forged sender fills once but never remembers it', async () => {
+  await addEmail(env.worker, 'Your verification code', 'Your verification code is 737373.', 0, { from: 'no-reply@other.test', auth: null });
+  const page = await open('single.html');
+  const blocked = await findUntilBlocked(env, page);
+  assert.equal(blocked.verdict, 'unverified');
+  await popupSend(env, { type: 'fillBlocked', remember: true });
+  const filled = await waitForResult(env.worker);
+  assert.equal(filled.status, 'filled');
+  assert.equal(await page.inputValue('#otp'), '737373');
+  const { trustedPairs = [] } = await env.worker.evaluate(() => chrome.storage.local.get('trustedPairs'));
+  assert.deepEqual(trustedPairs, []);
+  await page.close();
+});
+
+test('a confirmed, authenticated pair is remembered and then filled without asking', async () => {
+  await addEmail(env.worker, 'Your code', 'Your verification code is 828282.', 0, { from: 'Acme Pay <no-reply@acmepay.test>' });
+  const page = await open('single.html');
+  const blocked = await findUntilBlocked(env, page);
+  assert.equal(blocked.verdict, 'mismatch');
+  await popupSend(env, { type: 'fillBlocked', remember: true });
+  const filled = await waitForResult(env.worker);
+  assert.equal(filled.status, 'filled');
+  const { trustedPairs } = await env.worker.evaluate(() => chrome.storage.local.get('trustedPairs'));
+  assert.deepEqual(trustedPairs, ['acmepay.test -> acme.test']);
+
+  await page.fill('#otp', '');
+  await addEmail(env.worker, 'Your code', 'Your verification code is 939393.', 0, { from: 'Acme Pay <no-reply@acmepay.test>' });
+  const again = await runFind(env, page);
+  assert.equal(again.status, 'filled');
+  assert.equal(again.verdict, 'trusted');
+  assert.equal(await page.inputValue('#otp'), '939393');
+
+  await popupSend(env, { type: 'removePair', pair: 'acmepay.test -> acme.test' });
+  await page.close();
+});
+
+test('never fills a frame of another site, even one it may access', async () => {
+  await addEmail(env.worker, 'Payment check', 'Your one-time code is 404404');
+  const page = await open('iframe.html?cross=evil');
+  await page.frameLocator('#frame').locator('#code').waitFor();
+  const result = await runFind(env, page);
+  assert.equal(result.status, 'found');
+  assert.equal(result.reason, 'origin');
+  assert.equal(await page.frameLocator('#frame').locator('#code').inputValue(), '');
+  await page.close();
+});
+
+test('a code from the frame\'s own site goes into that frame', async () => {
+  await addEmail(env.worker, 'Payment check', 'Your one-time code is 707070', 0, { from: 'Pay <no-reply@evil.test>' });
+  const page = await open('iframe.html?cross=evil');
+  await page.frameLocator('#frame').locator('#code').waitFor();
+  const result = await runFind(env, page);
+  assert.equal(result.status, 'filled');
+  assert.equal(result.site, 'evil.test');
+  assert.equal(await page.frameLocator('#frame').locator('#code').inputValue(), '707070');
+  assert.equal(await page.inputValue('#search'), '');
+  await page.close();
+});
+
+test('a Japanese email is found and filled', async () => {
+  await addEmail(env.worker, '【Acme】認証コードのお知らせ', 'あなたの認証コードは１２３４５６です。\n有効期限は10分です。');
+  const page = await open('single.html');
+  const result = await runFind(env, page);
+  assert.equal(result.status, 'filled');
+  assert.equal(await page.inputValue('#otp'), '123456');
+  await page.close();
+});
+
+test('the popup explains a blocked code and offers to fill it', async () => {
+  await addEmail(env.worker, 'Your code', 'Your verification code is 252525.', 0, { from: 'Shop <no-reply@shop.other.test>' });
+  const page = await open('single.html');
+  await findUntilBlocked(env, page);
+  const popup = await env.context.newPage();
+  await popup.goto(`chrome-extension://${env.extensionId}/popup/popup.html?view=page`);
+  await popup.locator('#confirm').waitFor();
+  // Still waiting for a matching code, and offering the blocked one meanwhile.
+  assert.equal(await popup.isVisible('#progress'), true);
+  assert.equal(await popup.textContent('#confirmSender'), 'other.test');
+  assert.equal(await popup.textContent('#confirmSite'), 'acme.test');
+  assert.equal(await popup.isVisible('#fillAnyway'), true);
+  assert.equal(await popup.isVisible('#rememberRow'), true);
+  assert.equal(await popup.textContent('#resultCode'), '252525');
+  await popup.close();
+  await popupSend(env, { type: 'cancel' });
+  await waitForResult(env.worker);
+  await page.close();
+});
+
+test('an older code from another site does not end the wait for the right one', async () => {
+  await addEmail(env.worker, 'Your code', 'Your verification code is 313131.', 30_000, { from: 'Shop <no-reply@shop.other.test>' });
+  const page = await open('single.html');
+  setTimeout(() => {
+    addEmail(env.worker, 'Your Acme code', 'Your verification code is 464646.').catch(() => {});
+  }, 4000);
+  const result = await runFind(env, page, { timeout: 30_000 });
+  assert.equal(result.status, 'filled');
+  assert.equal(result.code, '464646');
+  assert.equal(await page.inputValue('#otp'), '464646');
+  assert.equal(await lastResult(env.worker).then(r => r.senderDomain), 'acme.test');
+  await page.close();
+});
+
+// Last: this test disconnects the account.
 test('the popup asks for a client ID when none is set', async () => {
   await env.worker.evaluate(() => chrome.storage.local.set({ clientId: '' }));
   const popup = await env.context.newPage();

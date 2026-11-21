@@ -3,6 +3,7 @@
  * - manifest.json parses and every file it points to exists
  * - no file or folder starts with "_" except _locales (Chrome refuses to load those)
  * - every i18n key used in the code exists in _locales/en/messages.json
+ * - every other locale has the same keys and placeholders as English
  * - the store description fits in 132 characters
  * - nothing in the extension calls a host it has not declared
  *
@@ -70,6 +71,19 @@ for (const match of allSource.matchAll(/\bt\(\s*'([A-Za-z0-9_]+)'|data-i18n(?:-p
 }
 for (const key of Object.keys(messages)) {
   if (!used.has(key) && !allSource.includes(`'${key}'`)) fail(`Unused string in _locales/en/messages.json: ${key}`);
+}
+
+// Every other locale has exactly the English keys and placeholders.
+for (const lang of (await readdir(join(ROOT, '_locales'))).filter(l => l !== 'en')) {
+  const other = JSON.parse(await readFile(join(ROOT, '_locales', lang, 'messages.json'), 'utf8'));
+  for (const key of Object.keys(messages)) {
+    if (!other[key]?.message) fail(`Missing string in _locales/${lang}/messages.json: ${key}`);
+    const want = JSON.stringify(Object.keys(messages[key].placeholders || {}).sort());
+    const got = JSON.stringify(Object.keys(other[key]?.placeholders || {}).sort());
+    if (other[key] && want !== got) fail(`Placeholders differ in _locales/${lang}/messages.json: ${key}`);
+  }
+  for (const key of Object.keys(other)) if (!messages[key]) fail(`Extra string in _locales/${lang}/messages.json: ${key}`);
+  if ((other.extensionDescription?.message || '').length > 132) fail(`${lang} extensionDescription is longer than 132 characters`);
 }
 
 // Store limits.

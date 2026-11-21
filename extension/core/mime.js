@@ -17,13 +17,47 @@ export function getHeader(headers, name) {
 }
 
 /**
+ * Every value of a header that may appear more than once, in message order
+ * (the topmost header first).
+ * @param {Array<{ name: string, value: string }>} [headers]
+ * @param {string} name
+ * @returns {string[]}
+ */
+export function getHeaders(headers, name) {
+  const lower = name.toLowerCase();
+  return (headers || []).filter(h => h?.name?.toLowerCase() === lower).map(h => String(h.value ?? ''));
+}
+
+/**
  * @param {string} contentType - e.g. 'text/html; charset="ISO-8859-1"'
  * @returns {string}
  */
 export function charsetOf(contentType) {
   const match = /charset\s*=\s*"?([^";\s]+)"?/i.exec(contentType || '');
-  return match ? match[1].toLowerCase() : 'utf-8';
+  if (!match) return 'utf-8';
+  const name = match[1].toLowerCase();
+  return CHARSET_ALIASES[name] || name;
 }
+
+/**
+ * Names Japanese senders use that TextDecoder does not know. Shift_JIS mail is
+ * nearly always Microsoft's superset, which TextDecoder decodes as shift_jis.
+ */
+const CHARSET_ALIASES = {
+  cp932: 'shift_jis',
+  'ms932': 'shift_jis',
+  'x-ms932': 'shift_jis',
+  'ms_kanji': 'shift_jis',
+  'x-sjis-cp932': 'shift_jis',
+  'iso-2022-jp-ms': 'iso-2022-jp',
+  'iso-2022-jp-1': 'iso-2022-jp',
+  'iso-2022-jp-2': 'iso-2022-jp',
+  'iso-2022-jp-3': 'iso-2022-jp',
+  'cp50220': 'iso-2022-jp',
+  'cp50221': 'iso-2022-jp',
+  'eucjp-ms': 'euc-jp',
+  'cp51932': 'euc-jp'
+};
 
 /**
  * Decodes Gmail's base64url body data using the part's character set.
@@ -76,6 +110,8 @@ function walk(part, out) {
  * @property {number} receivedAt - Milliseconds since the epoch, from Gmail's internalDate.
  * @property {string} subject
  * @property {string} from
+ * @property {string[]} authResults - Authentication-Results header values, top first.
+ * @property {boolean} spam - True when Gmail filed the message in Spam.
  * @property {string} text - Plain-text body, may be empty.
  * @property {string} html - HTML body, may be empty.
  */
@@ -94,6 +130,8 @@ export function parseMessage(message) {
     receivedAt: Number(message?.internalDate) || 0,
     subject: getHeader(payload.headers, 'subject'),
     from: getHeader(payload.headers, 'from'),
+    authResults: getHeaders(payload.headers, 'authentication-results'),
+    spam: Array.isArray(message?.labelIds) && message.labelIds.includes('SPAM'),
     text: out.text.join('\n').trim(),
     html: out.html.join('\n').trim()
   };

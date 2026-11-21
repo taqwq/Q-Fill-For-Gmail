@@ -4,7 +4,7 @@
     "description": "Extension name in the toolbar and the store."
   },
   "extensionDescription": {
-    "message": "Types the verification code from your newest Gmail message into the page you are on. Read-only, and nothing leaves your browser.",
+    "message": "Fills the verification code from Gmail into the page you are on, only when the sender's domain matches the site. Read-only.",
     "description": "Store description, at most 132 characters."
   },
   "actionTitle": {
@@ -68,7 +68,7 @@
     "message": "Fill code"
   },
   "fillHint": {
-    "message": "Open the page that asks for a code, then press Fill. If the email has not arrived yet, Q-Fill waits for it."
+    "message": "Open the page that asks for a code, then press Fill. Q-Fill only fills a code sent by the same site, and waits if the email has not arrived yet."
   },
   "shortcutNone": {
     "message": "Set a keyboard shortcut"
@@ -219,35 +219,19 @@
     "message": "Waiting for the verification email…"
   },
   "toastFilled": {
-    "message": "Filled $CODE$ from $SENDER$",
+    "message": "Filled the code from $SENDER$",
     "placeholders": {
-      "code": {
-        "content": "$1",
-        "example": "482913"
-      },
       "sender": {
-        "content": "$2",
-        "example": "Acme"
+        "content": "$1",
+        "example": "bank.co.jp"
       }
     }
   },
   "toastNoField": {
-    "message": "Found $CODE$ but no code field here. Copy it from the Q-Fill popup.",
-    "placeholders": {
-      "code": {
-        "content": "$1",
-        "example": "482913"
-      }
-    }
+    "message": "Found a code but no code field here. Copy it from the Q-Fill popup."
   },
   "toastRejected": {
-    "message": "Found $CODE$ but the page did not accept it. Copy it from the Q-Fill popup.",
-    "placeholders": {
-      "code": {
-        "content": "$1",
-        "example": "482913"
-      }
-    }
+    "message": "Found a code but the page did not accept it. Copy it from the Q-Fill popup."
   },
   "toastNoCode": {
     "message": "No new verification email arrived."
@@ -305,5 +289,120 @@
         "example": "TypeError"
       }
     }
+  },
+  "toastBlocked": {
+    "message": "Q-Fill found a code but did not fill it. Open Q-Fill to see why."
+  },
+  "toastOriginChanged": {
+    "message": "The page changed before the code could be filled. Nothing was typed."
+  },
+  "resultOrigin": {
+    "message": "The page is no longer the site the code was sent for, so nothing was filled."
+  },
+  "unknownSender": {
+    "message": "unknown sender"
+  },
+  "unknownSite": {
+    "message": "not an https page"
+  },
+  "blockedMismatch": {
+    "message": "Different site"
+  },
+  "blockedMismatchNote": {
+    "message": "This code was sent by a different site than the page you are on. Fill it only if you are sure both belong to the same service; phishing pages ask for codes this way."
+  },
+  "blockedUnverified": {
+    "message": "Sender not verified"
+  },
+  "blockedUnverifiedNote": {
+    "message": "Gmail could not confirm that this email really comes from its sender's domain. It may be forged."
+  },
+  "blockedSpam": {
+    "message": "From the Spam folder"
+  },
+  "blockedSpamNote": {
+    "message": "This email is in Spam. Fill it only if you were expecting it."
+  },
+  "blockedNoSite": {
+    "message": "Not filled on this page"
+  },
+  "blockedNoSiteNote": {
+    "message": "Q-Fill only fills codes into https pages. You can copy the code instead."
+  },
+  "confirmSender": {
+    "message": "Sent by"
+  },
+  "confirmSite": {
+    "message": "This page"
+  },
+  "rememberPair": {
+    "message": "Always trust codes from $SENDER$ on $SITE$",
+    "placeholders": {
+      "sender": {
+        "content": "$1",
+        "example": "bank.co.jp"
+      },
+      "site": {
+        "content": "$2",
+        "example": "bankpay.jp"
+      }
+    }
+  },
+  "fillAnyway": {
+    "message": "Fill into $SITE$ anyway",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "bankpay.jp"
+      }
+    }
+  },
+  "settingsSuggest": {
+    "message": "Suggest by the field"
+  },
+  "settingsSuggestLabel": {
+    "message": "Offer the code under a code field"
+  },
+  "settingsSuggestHint": {
+    "message": "Like codes from text messages on a phone: focus a code field and Q-Fill offers the code from the same site. The page gets the code only when you click. Needs access to https sites, which Chrome asks for."
+  },
+  "settingsAutoStart": {
+    "message": "When the popup opens"
+  },
+  "settingsAutoStartLabel": {
+    "message": "Start looking right away"
+  },
+  "settingsPairs": {
+    "message": "Trusted senders"
+  },
+  "settingsPairsEmpty": {
+    "message": "None. Approve a pair when a code comes from a different domain than the site."
+  },
+  "remove": {
+    "message": "Remove"
+  },
+  "suggestFrom": {
+    "message": "Code from $DOMAIN$",
+    "placeholders": {
+      "domain": {
+        "content": "$1",
+        "example": "bank.co.jp"
+      }
+    }
+  },
+  "suggestFill": {
+    "message": "Fill"
+  },
+  "suggestClose": {
+    "message": "Close"
+  },
+  "suggestNoField": {
+    "message": "No code field to fill."
+  },
+  "suggestFailed": {
+    "message": "Could not fill. Open Q-Fill to try again."
+  },
+  "toastBlockedWaiting": {
+    "message": "Found a code from a different site or an unverified sender. Still waiting for the right one; open Q-Fill to review it."
   }
 }

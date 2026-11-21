@@ -6,14 +6,19 @@
  * inject modules. Everything lives on one global in the extension's isolated
  * world, which the page's own scripts cannot see.
  *
- *   __qfill.probe(codeLength)  ->  { score, kind, size } | null
- *   __qfill.fill(code)         ->  Promise<{ ok, kind, reason }>
- *   __qfill.toast(text, tone)  ->  shows a short message on the page
+ *   __qfill.probe(codeLength)        ->  { score, kind, size, origin } | null
+ *   __qfill.fill(code, origin)       ->  Promise<{ ok, kind, reason }>
+ *   __qfill.isCodeField(element)     ->  true for a field that wants a code
+ *   __qfill.toast(text, tone)        ->  shows a short message on the page
+ *
+ * `origin` is this frame's own origin, read in the isolated world where the
+ * page cannot fake it. fill() refuses to type when the frame's origin is no
+ * longer the one the service worker checked against the sender's domain.
  */
 (() => {
   'use strict';
 
-  const VERSION = 2;
+  const VERSION = 3;
   if (globalThis.__qfill?.version === VERSION) return;
 
   const MIN_SCORE = 50;
@@ -48,6 +53,30 @@
     'reward', 'redeem', 'redemption', 'offer', 'card', 'cvv', 'cvc', 'csc', 'atm',
     'tracking', 'booking', 'reference', 'order', 'serial', 'license', 'product', 'captcha'
   ];
+  /**
+   * Chinese, Japanese and Korean phrases. These scripts have no spaces
+   * between words, so they are matched as substrings, not as whole words.
+   */
+  const DEFINITIVE_CJK = [
+    '認証コード', '確認コード', 'ワンタイムパスワード', 'ワンタイムコード', 'ワンタイムパスコード',
+    '認証番号', '確認番号', 'パスコード', '認証キー', '確認キー', 'ログインコード', '承認コード',
+    '検証コード', '本人確認コード', '验证码', '驗證碼', '校验码', '인증번호', '인증 번호', '인증코드'
+  ];
+  const STRONG_CJK = ['ワンタイム', '認証', '本人確認', '二段階', '2段階', '多要素'];
+  const MEDIUM_CJK = ['コード', '桁', 'セキュリティコード'];
+  const NEGATIVE_CJK = [
+    'メール', 'パスワード', '氏名', '名前', 'フリガナ', 'ふりがな', '住所', '郵便番号', '電話番号',
+    '携帯番号', '生年月日', '検索', 'ユーザー', 'ニックネーム', '会社名', '金額', '数量', '会員番号',
+    'お問い合わせ', 'コメント', '件名', '本文', '有効期限'
+  ];
+  const OTHER_CODES_CJK = [
+    'クーポン', 'プロモーション', '招待', '紹介', '割引', '郵便番号', 'ギフト', 'ポイント',
+    'キャンペーン', '検索', '注文番号', '追跡番号', '会員番号', 'シリアル', '引換', 'プロモ'
+  ];
+  /** Card security codes, card numbers and ATM PINs: never a one-time code. */
+  const NEVER_CJK = ['カード番号', 'クレジット', 'カードの', '暗証番号', '口座番号', 'マイナンバー'];
+  const hasCjk = (text, list) => list.some(p => text.includes(p));
+
   /** Never a verification code, whatever else the field says. */
   const NEVER = ['cvv', 'cvv2', 'cvc', 'csc', 'card', 'credit', 'debit', 'iban', 'ssn', 'captcha'];
   const SKIP_TYPES = new Set([
@@ -189,26 +218,33 @@
     const attrPositive = attrStrong || hasAny(attrs, MEDIUM);
     const labelPositive = labelStrong || hasAny(label, MEDIUM);
 
-    if (!oneTimeCode && (hasAny(attrs, NEVER) || hasAny(ownLabel, NEVER))) return -1000;
+    if (!oneTimeCode && (hasAny(attrs, NEVER) || hasAny(ownLabel, NEVER) ||
+        hasCjk(attrs, NEVER_CJK) || hasCjk(ownLabel, NEVER_CJK))) return -1000;
+    // A card form calls its CVV "セキュリティコード".
+    if (!oneTimeCode && hasCjk(ownLabel, ['セキュリティコード']) && hasCjk(label, ['カード', 'クレジット'])) return -1000;
+
+    const cjkDefinitive = hasCjk(attrs, DEFINITIVE_CJK) || hasCjk(ownLabel, DEFINITIVE_CJK);
 
     // A password field is only a code field when it says so outright.
-    if (type === 'password' && !oneTimeCode && !hasAny(attrs, DEFINITIVE) && !hasAny(ownLabel, DEFINITIVE)) {
+    if (type === 'password' && !oneTimeCode && !hasAny(attrs, DEFINITIVE) && !hasAny(ownLabel, DEFINITIVE) && !cjkDefinitive) {
       return -1000;
     }
 
     // "Promo code", "ZIP code", "gift card code": the word "code" is not enough.
-    const otherCode = hasAny(attrs, OTHER_CODES) || hasAny(ownLabel, OTHER_CODES);
-    if (otherCode && !oneTimeCode && !attrStrong && !hasAny(ownLabel, DEFINITIVE) && !hasAny(ownLabel, STRONG)) {
+    const otherCode = hasAny(attrs, OTHER_CODES) || hasAny(ownLabel, OTHER_CODES) ||
+      hasCjk(attrs, OTHER_CODES_CJK) || hasCjk(ownLabel, OTHER_CODES_CJK);
+    if (otherCode && !oneTimeCode && !attrStrong && !hasAny(ownLabel, DEFINITIVE) && !hasAny(ownLabel, STRONG) &&
+        !cjkDefinitive && !hasCjk(ownLabel, STRONG_CJK)) {
       return -1000;
     }
 
-    if (hasAny(attrs, DEFINITIVE)) score += 150;
-    else if (hasAny(attrs, STRONG)) score += 70;
-    else if (hasAny(attrs, MEDIUM)) score += 40;
+    if (hasAny(attrs, DEFINITIVE) || hasCjk(attrs, DEFINITIVE_CJK)) score += 150;
+    else if (hasAny(attrs, STRONG) || hasCjk(attrs, STRONG_CJK)) score += 70;
+    else if (hasAny(attrs, MEDIUM) || hasCjk(attrs, MEDIUM_CJK)) score += 40;
 
-    if (hasAny(label, DEFINITIVE)) score += 80;
-    else if (hasAny(label, STRONG)) score += 45;
-    else if (hasAny(label, MEDIUM)) score += 30;
+    if (hasAny(label, DEFINITIVE) || hasCjk(label, DEFINITIVE_CJK)) score += 80;
+    else if (hasAny(label, STRONG) || hasCjk(label, STRONG_CJK)) score += 45;
+    else if (hasAny(label, MEDIUM) || hasCjk(label, MEDIUM_CJK)) score += 30;
 
     if (maxLength === 1) score += 50;
     else if (maxLength === codeLength) score += 80;
@@ -232,8 +268,13 @@
     if (rect.top < innerHeight && rect.bottom > 0) score += 20;
     if (parseFloat(getComputedStyle(el).opacity) === 0 && score < 300) score -= 40;
 
-    if (hasAny(attrs, NEGATIVE) && !attrPositive) score -= 150;
-    if (hasAny(label, NEGATIVE) && !labelPositive && !attrPositive) score -= 60;
+    const attrPositiveAll = attrPositive || hasCjk(attrs, DEFINITIVE_CJK) || hasCjk(attrs, STRONG_CJK) || hasCjk(attrs, MEDIUM_CJK);
+    const labelPositiveAll = labelPositive || hasCjk(label, DEFINITIVE_CJK) || hasCjk(label, STRONG_CJK) || hasCjk(label, MEDIUM_CJK);
+    if ((hasAny(attrs, NEGATIVE) || hasCjk(attrs, NEGATIVE_CJK)) && !attrPositiveAll) score -= 150;
+    if ((hasAny(label, NEGATIVE) || hasCjk(label, NEGATIVE_CJK)) && !labelPositiveAll && !attrPositiveAll) score -= 60;
+    // The nearby text may mention a code for another field; the field's own
+    // label saying "住所" or "電話番号" settles it.
+    if (hasCjk(ownLabel, NEGATIVE_CJK) && !cjkDefinitive && !hasCjk(ownLabel, STRONG_CJK) && !oneTimeCode) score -= 150;
 
     return score;
   }
@@ -390,7 +431,18 @@
     }
   }
 
-  async function fill(rawCode) {
+  /** This frame's origin, as the browser sees it. */
+  const frameOrigin = () => String(self.origin || '');
+
+  /**
+   * @param {string} rawCode
+   * @param {string} expectedOrigin - The origin the service worker checked.
+   */
+  async function fill(rawCode, expectedOrigin) {
+    // The frame may have navigated since it was checked.
+    if (!expectedOrigin || frameOrigin() !== expectedOrigin || !frameOrigin().startsWith('https://')) {
+      return { ok: false, reason: 'origin' };
+    }
     const code = String(rawCode || '').replace(/[^0-9A-Za-z]/g, '');
     if (code.length < 4 || code.length > 8) return { ok: false, reason: 'bad-code' };
 
@@ -431,7 +483,22 @@
 
   function probe(codeLength) {
     const target = plan(codeLength || 6);
-    return target ? { score: target.score, kind: target.kind, size: target.fields.length } : null;
+    return target ? { score: target.score, kind: target.kind, size: target.fields.length, origin: frameOrigin() } : null;
+  }
+
+  /** Score a field needs before Q-Fill offers a code for it on its own. */
+  const SUGGEST_SCORE = 150;
+
+  /**
+   * True when a focused element clearly wants a one-time code. Stricter than
+   * plan(), because it decides whether to look at your mail unasked.
+   * @param {Element} el
+   */
+  function isCodeField(el) {
+    if (!el || !el.matches?.(FIELD_SELECTOR) || !isUsable(el)) return false;
+    const target = plan(6);
+    if (!target || !target.fields.includes(el)) return false;
+    return target.score >= SUGGEST_SCORE;
   }
 
   let toastTimer = 0;
@@ -466,5 +533,5 @@
     if (durationMs > 0) toastTimer = setTimeout(() => host.remove(), durationMs);
   }
 
-  globalThis.__qfill = { version: VERSION, probe, fill, toast };
+  globalThis.__qfill = { version: VERSION, probe, fill, isCodeField, toast };
 })();

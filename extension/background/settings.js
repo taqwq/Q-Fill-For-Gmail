@@ -12,17 +12,39 @@ import { DEFAULT_LOOKBACK_MINUTES, LOOKBACK_CHOICES } from '../shared/constants.
  * @property {string} clientId - Your Google OAuth client ID.
  * @property {string} email - The Gmail address you connected, or '' when not connected.
  * @property {number} lookbackMinutes - How far back to look for a code.
+ * @property {string[]} trustedPairs - Sender-to-site pairs you approved, see sender.js pairKey().
+ * @property {boolean} suggestEnabled - Offer a code by the field on its own.
+ * @property {boolean} autoStart - Start looking as soon as the popup opens.
  */
+
+/** "bank.co.jp -> bankpay.jp" with two plain ASCII domains. */
+const PAIR = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])? -> [a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 
 /** @returns {Promise<Settings>} */
 export async function getSettings() {
-  const stored = await chrome.storage.local.get(['clientId', 'email', 'lookbackMinutes']);
+  const stored = await chrome.storage.local.get(['clientId', 'email', 'lookbackMinutes', 'trustedPairs', 'suggestEnabled', 'autoStart']);
   const lookback = Number(stored.lookbackMinutes);
   return {
     clientId: stored.clientId || DEFAULT_CLIENT_ID || '',
     email: stored.email || '',
-    lookbackMinutes: LOOKBACK_CHOICES.includes(lookback) ? lookback : DEFAULT_LOOKBACK_MINUTES
+    lookbackMinutes: LOOKBACK_CHOICES.includes(lookback) ? lookback : DEFAULT_LOOKBACK_MINUTES,
+    trustedPairs: Array.isArray(stored.trustedPairs) ? stored.trustedPairs.filter(p => typeof p === 'string' && PAIR.test(p)) : [],
+    suggestEnabled: stored.suggestEnabled === true,
+    autoStart: stored.autoStart !== false
   };
+}
+
+/** @param {string} key - From pairKey(). */
+export async function addTrustedPair(key) {
+  if (!PAIR.test(key)) return;
+  const { trustedPairs } = await getSettings();
+  if (!trustedPairs.includes(key)) await saveSettings({ trustedPairs: [...trustedPairs, key].slice(-200) });
+}
+
+/** @param {string} key */
+export async function removeTrustedPair(key) {
+  const { trustedPairs } = await getSettings();
+  await saveSettings({ trustedPairs: trustedPairs.filter(p => p !== key) });
 }
 
 /** @param {Partial<Settings>} patch */

@@ -2,6 +2,23 @@
 
 All notable changes to Q-Fill are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-11-21 (fork)
+
+### Added
+
+- Japanese emails: labels such as 認証コード, 確認コード, 認証番号, ワンタイムパスワード and パスコード, full-width digits, 「」 and 【】 brackets, code-before-label wording, and Japanese negatives (クーポンコード, 注文番号, 会員番号, 〒, 電話番号, 円, 年, meeting passcodes). Bodies in ISO-2022-JP, Shift_JIS (including CP932) and EUC-JP.
+- Japanese field detection in the page, and a Japanese UI.
+- Sender-to-site check: a code is filled only when Gmail authenticated the sender (DMARC, or DKIM/SPF aligned with From) and the sender's registrable domain, from a bundled Public Suffix List, matches the page's.
+- Popup confirmation for codes from another site, an unauthenticated sender or Spam, with an option to trust an authenticated sender-to-site pair.
+- Optional suggestion under a focused one-time-code field, filled on a trusted click only.
+- The popup starts looking as soon as it opens (can be turned off).
+
+### Changed
+
+- Codes are filled only into https frames of the matching site, re-checked inside the frame at the moment of typing.
+- Page toasts no longer show the code, and name the verified sender domain instead of the display name.
+- The popup port accepts only the extension's own popup page.
+
 ## [2.0.0] - 2026-11-07
 
 A rewrite. The extension now lives in `extension/` and loads from a fresh clone with no files to copy or edit.
@@ -62,6 +79,7 @@ A rewrite. The extension now lives in `extension/` and loads from a fresh clone 
 - Moved the OAuth client ID out of the source code.
 - Replaced `innerHTML` with safe DOM methods in the content script.
 
+[2.1.0]: https://github.com/taqwq/Q-Fill-For-Gmail/compare/main...feat/ja-domain-binding
 [2.0.0]: https://github.com/qbeka/Q-Fill-For-Gmail/compare/fd6e7aa...v2.0.0
 [1.2.0]: https://github.com/qbeka/Q-Fill-For-Gmail/commit/63e2edd
 [1.1.0]: https://github.com/qbeka/Q-Fill-For-Gmail/commit/401f8a7

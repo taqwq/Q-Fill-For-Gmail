@@ -11,9 +11,14 @@
   </main>
   <script>
     // ?cross=1 loads the frame from another origin (localhost <-> 127.0.0.1).
-    if (new URLSearchParams(location.search).get('cross')) {
-      const other = location.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
-      document.getElementById('frame').src = `${location.protocol}//${other}:${location.port}/playground/frame-inner.html`;
+    // The end-to-end tests use ?cross=evil for another site the extension may
+    // access, and ?cross=blocked for one it may not.
+    const cross = new URLSearchParams(location.search).get('cross');
+    const hosts = { evil: 'pay.evil.test', blocked: 'pay.example.invalid' };
+    if (cross) {
+      const other = hosts[cross] || (location.hostname === 'localhost' ? '127.0.0.1' : 'localhost');
+      const port = hosts[cross] || !location.port ? '' : `:${location.port}`;
+      document.getElementById('frame').src = `${location.protocol}//${other}${port}/playground/frame-inner.html`;
     }
   </script>
 </body>

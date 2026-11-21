@@ -6,7 +6,7 @@
 
 Fill the verification code from your newest Gmail message into the page you are on with one click, without your email ever leaving your browser
 
-[![CI](https://github.com/qbeka/Q-Fill-For-Gmail/actions/workflows/ci.yml/badge.svg)](https://github.com/qbeka/Q-Fill-For-Gmail/actions/workflows/ci.yml)
+[![CI](https://github.com/taqwq/Q-Fill-For-Gmail/actions/workflows/ci.yml/badge.svg)](https://github.com/taqwq/Q-Fill-For-Gmail/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-1d3a2a.svg)](LICENSE)
 ![Manifest V3](https://img.shields.io/badge/manifest-v3-1d3a2a.svg)
 ![No dependencies at runtime](https://img.shields.io/badge/runtime%20dependencies-0-1d3a2a.svg)
@@ -15,13 +15,52 @@ Fill the verification code from your newest Gmail message into the page you are 
 
 </div>
 
+> **This is a fork** of [qbeka/Q-Fill-For-Gmail](https://github.com/qbeka/Q-Fill-For-Gmail) that adds Japanese email support, a sender-to-site domain check and an optional one-tap suggestion under the code field. The Japanese summary follows; the rest of this README describes the extension as a whole.
+
+## このフォークについて（日本語）
+
+PC でも、スマートフォンの SMS 認証コードのように、メールで届いた認証コードを 1 タップで入力できるようにした改良版です。
+
+### 追加したこと
+
+- **日本語メールへの対応**: `認証コードは123456です`、`確認コード：１２３４５６`（全角）、`【591027】はあなたの…`、`ワンタイムパスワード`、`認証番号`、`パスコード` などを読み取ります。クーポンコード、注文番号、会員番号、〒、電話番号、金額、日付、ミーティングのパスコードは読み取りません。ISO-2022-JP、Shift_JIS（CP932）、EUC-JP の本文に対応しています。入力欄の検出も日本語のラベルに対応しています。
+- **送信元とサイトのドメイン照合（必須）**: メールの送信元の登録可能ドメイン（例: `bank.co.jp`）と、入力先のページの登録可能ドメインが一致するときだけ、自動で入力します。判定には Public Suffix List を同梱して使うので、`evil.co.jp` と `bank.co.jp` を同じサイトとみなすことはありません。
+- **送信元のなりすまし対策**: `From` は簡単に偽装できるので、Gmail 自身が付けた `Authentication-Results` ヘッダー（最上段の `mx.google.com` のもの）で DMARC、または From と整合する DKIM / SPF が pass しているメールだけを、その送信元のドメインからのメールとして扱います。
+- **不一致のときは確認する**: ドメインが一致しない、送信元を確認できない、迷惑メールフォルダにある、のいずれかの場合は入力せず、ポップアップに送信元とページのドメインを並べて表示します。「それでも入力」で 1 回だけ入力できます。認証済みの送信元に限り「この組み合わせを常に信頼する」を選べます（設定から削除可能）。
+- **入力の瞬間にもう一度確認**: 入力するフレームのオリジンを入力の直前にも確認し、検索中に別のページへ移っていたら入力しません。別サイトの iframe にも入力しません。https 以外のページには入力しません。
+- **1 タップ**: ポップアップを開くと、すぐに検索を始めます（設定で切り替え可）。ショートカット `Alt+Shift+F` も使えます。
+- **入力欄の下での提案（任意）**: 設定で「入力欄での候補表示」をオンにすると、コード入力欄を選んだときに、同じサイトから届いたコードを欄の下に提案します。クリックするまで、コードはページに渡しません（ページのスクリプトからのクリックは無視します）。この機能には https サイトへのアクセス権が必要で、オンにするときに Chrome が許可を求めます。
+- **日本語 UI**（`_locales/ja`）。
+
+<table>
+  <tr>
+    <td><img src="docs/images/ja/popup-blocked.png" width="300" alt="別サイトからのコードを入力せず、送信元とページのドメインを並べて確認するポップアップ"></td>
+    <td><img src="docs/images/ja/suggest-bar.png" width="420" alt="コード入力欄の下に、送信元ドメインと入力ボタンを表示した提案バー"></td>
+  </tr>
+</table>
+
+### 使い方
+
+インストールと Google OAuth クライアントの作成は、下の [Install](#install) と [docs/setup.md](docs/setup.md) のとおりです。設計と脅威モデルは [docs/PLAN-ja.md](docs/PLAN-ja.md) にあります。
+
+### テスト
+
+```
+npm ci
+npm run check          # lint、単体テスト、拡張機能の静的チェック
+npx playwright install chromium
+npm run test:e2e       # 実際の Chromium で拡張機能を動かす E2E テスト
+```
+
 ## What it does
 
 A site emails you a code. Instead of switching to Gmail, finding the email and copying six digits, you press **Fill code** (or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>) and Q-Fill:
 
 1. Reads your most recent Gmail messages with read-only access.
-2. Finds the verification code in the newest one that has a code.
-3. Types it into the code field on the page, including split six-box fields, fields in iframes and fields inside web components.
+2. Finds the verification code in the newest one that has a code **and was sent by the site you are on**: Gmail must have authenticated the sender (DMARC, or aligned DKIM/SPF), and the sender's registrable domain must match the page's.
+3. Types it into the code field on the page, including split six-box fields, fields in iframes of the same site and fields inside web components.
+
+A code from another site, an unauthenticated sender or the Spam folder is never filled on its own. The popup shows both domains and lets you fill it once, or trust that pair from then on.
 
 If the email has not arrived yet, Q-Fill keeps checking for 90 seconds and fills the code the moment it lands. You can close the popup and keep working.
 
@@ -35,7 +74,7 @@ If the email has not arrived yet, Q-Fill keeps checking for 90 seconds and fills
 ## Why it is built this way
 
 - **Your own OAuth client.** Q-Fill connects to Gmail through a Google OAuth client that you create. No company, including the author, holds a key to your inbox, and there is no server.
-- **Nothing runs until you ask.** There is no content script on every site. Q-Fill touches a page only after you click its icon or press its shortcut, through Chrome's `activeTab` permission.
+- **Nothing runs until you ask.** By default there is no content script on any site. Q-Fill touches a page only after you click its icon or press its shortcut, through Chrome's `activeTab` permission. The optional **Suggest by the field** setting asks Chrome for access to https sites, and you can turn it off at any time.
 - **Read-only.** The only Gmail scope is `gmail.readonly`. Q-Fill cannot send, change or delete mail.
 - **Memory only.** The access token, the last code and the list of emails already used live in `chrome.storage.session`, which the browser clears when it closes. See [PRIVACY.md](PRIVACY.md).
 - **No build step.** The `extension/` folder is the extension. It has no runtime dependencies and loads as it is.
@@ -44,7 +83,7 @@ If the email has not arrived yet, Q-Fill keeps checking for 90 seconds and fills
 
 Q-Fill is not in the Chrome Web Store. You load it yourself and connect it to an OAuth client you create, which takes about five minutes once.
 
-1. Download `q-fill-<version>.zip` from the [latest release](https://github.com/qbeka/Q-Fill-For-Gmail/releases/latest) and unzip it. Or clone the repository and use its `extension` folder.
+1. Download `q-fill-<version>.zip` from the [latest release](https://github.com/taqwq/Q-Fill-For-Gmail/releases/latest) and unzip it. Or clone the repository and use its `extension` folder.
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder (or the repository's **`extension`** folder).
 3. A setup page opens with your redirect URI. Follow [docs/setup.md](docs/setup.md) to create the OAuth client in Google Cloud, then paste its client ID into Q-Fill.
 4. Click **Connect Gmail**, pick your account and allow "View your email messages and settings".

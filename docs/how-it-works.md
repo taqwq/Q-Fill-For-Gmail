@@ -94,6 +94,17 @@ Emails whose code was filled are remembered by message ID in session memory, so 
 
 The best token with at least 60 points wins. If none reaches 60, Q-Fill reports that no code was found rather than guess.
 
+## 4½. Checking the sender against the site
+
+A code is only useful to the site that sent it, and a phishing page that asks for your bank's code is the main way codes get stolen. So before filling, Q-Fill checks two things:
+
+1. **Who really sent the email** ([`core/sender.js`](../extension/core/sender.js)). The `From` header is easy to forge, so Q-Fill reads the topmost `Authentication-Results` header, which Gmail's own receiving server (`mx.google.com`) writes. Headers below it came with the message and are ignored. The sender's domain counts as authentic when DMARC passes for it, or when DKIM or SPF passes for a domain with the same registrable domain as `From`. A DMARC `fail`, `temperror` or `permerror` always wins. Only the address in angle brackets counts, never the display name.
+2. **Which site the code would go to** ([`core/domain.js`](../extension/core/domain.js)). Domains are compared by registrable domain (eTLD+1) from a Public Suffix List bundled in [`core/psl-data.js`](../extension/core/psl-data.js) (refresh it with `node scripts/update-psl.mjs`), so `login.bank.co.jp` matches `bank.co.jp`, but `evil.co.jp` does not, and neither do two different `github.io` sites. IP addresses, `localhost` and non-https pages never match.
+
+The finder picks the newest code whose verdict is `match` or `trusted` (a pair you approved). A newer code from another site neither blocks it nor gets filled. If only blocked codes exist (`mismatch`, `unverified`, `spam`, `no-site`), the popup shows the code with both domains and asks; the page is never shown the code. Only an authenticated sender can be remembered as a trusted pair.
+
+At fill time the check runs again inside the frame: each frame reports its own origin from the extension's isolated world, only frames of the matching site are candidates, the fill call targets that exact document, and the frame refuses if its origin changed since.
+
 ## 5. Filling the page
 
 [`content/autofill.js`](../extension/content/autofill.js) is injected into every frame of the tab that Q-Fill may access. Each frame scores its fields and reports its best one. The worker then fills only the single best frame, so a code never lands in two places.

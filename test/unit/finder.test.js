@@ -38,7 +38,7 @@ function fakeGmail(start, inbox) {
   return { deps, calls, advance: ms => { clock += ms; }, time: () => clock };
 }
 
-const options = { lookbackMs: 10 * 60_000, waitMs: 60_000, pollMs: 3_000, maxPerCheck: 8 };
+const options = { lookbackMs: 10 * 60_000, waitMs: 60_000, pollMs: 3_000, maxPerCheck: 8, classify: () => 'match' };
 const T = 1_762_500_000_000;
 
 test('returns the newest message with a code, not the highest scoring one', async () => {
@@ -177,4 +177,73 @@ test('a permanent error such as a disabled API stops at once', async () => {
   };
   await assert.rejects(findNewestCode(gmail.deps, options), /not been used/);
   assert.equal(gmail.calls.list, 1);
+});
+
+function fromMessage(id, receivedAt, from, text) {
+  const m = message(id, receivedAt, 'Your code', text);
+  m.payload.headers = [
+    { name: 'Authentication-Results', value: `mx.google.com; dmarc=pass header.from=${from.split('@')[1]}` },
+    { name: 'Subject', value: 'Your code' },
+    { name: 'From', value: from }
+  ];
+  return m;
+}
+
+const bySite = site => hit => (hit.sender.verified && hit.sender.domain === site ? 'match' : 'mismatch');
+
+test('a newer code from another site neither blocks nor replaces the matching one', async () => {
+  const inbox = [
+    fromMessage('bank', T - 60_000, 'no-reply@bank.co.jp', 'Your code is 111222'),
+    fromMessage('other', T - 10_000, 'no-reply@shop.example', 'Your code is 999888')
+  ];
+  const { deps } = fakeGmail(T, () => inbox);
+  const hit = await findNewestCode(deps, { ...options, classify: bySite('bank.co.jp') });
+  assert.equal(hit.id, 'bank');
+  assert.equal(hit.verdict, 'match');
+  assert.equal(hit.sender.domain, 'bank.co.jp');
+});
+
+test('stopOnBlocked returns a blocked code at once instead of waiting', async () => {
+  const inbox = [fromMessage('other', T - 10_000, 'no-reply@shop.example', 'Your code is 999888')];
+  const gmail = fakeGmail(T, () => inbox);
+  const hit = await findNewestCode(gmail.deps, { ...options, classify: bySite('bank.co.jp'), stopOnBlocked: true });
+  assert.equal(hit.id, 'other');
+  assert.equal(hit.verdict, 'mismatch');
+  assert.equal(gmail.time(), T);
+});
+
+test('without stopOnBlocked a blocked code waits, then is reported when time runs out', async () => {
+  const inbox = [fromMessage('other', T - 10_000, 'no-reply@shop.example', 'Your code is 999888')];
+  const gmail = fakeGmail(T, () => inbox);
+  const hit = await findNewestCode(gmail.deps, { ...options, classify: bySite('bank.co.jp') });
+  assert.equal(hit.verdict, 'mismatch');
+  assert.ok(gmail.time() > T);
+});
+
+test('a matching code that arrives while waiting wins over a blocked one', async () => {
+  const inbox = [fromMessage('other', T - 10_000, 'no-reply@shop.example', 'Your code is 999888')];
+  const gmail = fakeGmail(T, () => inbox);
+  let checks = 0;
+  const hit = await findNewestCode(gmail.deps, {
+    ...options,
+    classify: bySite('bank.co.jp'),
+    onProgress: () => {
+      if (++checks === 2) inbox.push(fromMessage('bank', gmail.time(), 'no-reply@bank.co.jp', 'Your code is 111222'));
+    }
+  });
+  assert.equal(hit.id, 'bank');
+});
+
+test('a spoofed From with no Gmail authentication is unverified', async () => {
+  const forged = message('forged', T - 10_000, 'Your code', 'Your code is 424242');
+  forged.payload.headers = [{ name: 'From', value: 'no-reply@bank.co.jp' }, { name: 'Subject', value: 'Your code' }];
+  const { deps } = fakeGmail(T, () => [forged]);
+  const hit = await findNewestCode(deps, { ...options, waitMs: 0, classify: bySite('bank.co.jp') });
+  assert.equal(hit.sender.verified, false);
+  assert.equal(hit.verdict, 'mismatch');
+});
+
+test('refuses to run without a classify callback', async () => {
+  const { deps } = fakeGmail(T, () => []);
+  await assert.rejects(findNewestCode(deps, { ...options, classify: undefined }), TypeError);
 });

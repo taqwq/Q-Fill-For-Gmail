@@ -1,0 +1,406 @@
+{
+  "extensionName": {
+    "message": "Q-Fill for Gmail"
+  },
+  "extensionDescription": {
+    "message": "Gmail に届いた認証コードを、開いているページに入力します。送信元のドメインがサイトと一致する場合のみ動作し、Gmail は読み取り専用です。"
+  },
+  "actionTitle": {
+    "message": "Q-Fill: Gmail の認証コードを入力"
+  },
+  "commandOpen": {
+    "message": "Q-Fill を開く"
+  },
+  "commandFill": {
+    "message": "Gmail の最新の認証コードを入力"
+  },
+  "setupTitle": {
+    "message": "Q-Fill のセットアップ"
+  },
+  "setupLead": {
+    "message": "Q-Fill は、あなた自身の Google OAuth クライアントで Gmail を読み取ります。受信トレイへの鍵を他人が持つことはありません。所要時間は約5分で、設定は一度だけです。"
+  },
+  "setupStep1": {
+    "message": "Google Cloud プロジェクトを作成し、Gmail API を有効にします。"
+  },
+  "setupStep2": {
+    "message": "種類が「ウェブ アプリケーション」の OAuth クライアントを作成し、次のリダイレクト URI を追加します。"
+  },
+  "setupStep3": {
+    "message": "発行されたクライアント ID を貼り付けます。"
+  },
+  "setupGuide": {
+    "message": "手順ガイド"
+  },
+  "clientIdPlaceholder": {
+    "message": "1234567890-abc123.apps.googleusercontent.com"
+  },
+  "clientIdInvalid": {
+    "message": "クライアント ID の形式が正しくありません。末尾は .apps.googleusercontent.com です。"
+  },
+  "save": {
+    "message": "保存"
+  },
+  "copy": {
+    "message": "コピー"
+  },
+  "copied": {
+    "message": "コピーしました"
+  },
+  "connectTitle": {
+    "message": "Gmail に接続"
+  },
+  "connectLead": {
+    "message": "Q-Fill は Google に読み取り専用のアクセスを求めます。メールの送信、変更、削除はできません。認証コードがブラウザの外に出ることもありません。"
+  },
+  "connectButton": {
+    "message": "Gmail に接続"
+  },
+  "connectingButton": {
+    "message": "Google の応答を待っています…"
+  },
+  "connectHint": {
+    "message": "Google のウィンドウが開きます。アカウントを選び、「メールメッセージと設定の閲覧」を許可してください。"
+  },
+  "fillButton": {
+    "message": "コードを入力"
+  },
+  "fillHint": {
+    "message": "認証コードを求めるページを開き、「コードを入力」を押してください。Q-Fill は同じサイトから届いたコードだけを入力し、メールが未着の場合は到着を待ちます。"
+  },
+  "shortcutNone": {
+    "message": "キーボード ショートカットを設定"
+  },
+  "cancel": {
+    "message": "キャンセル"
+  },
+  "phaseSigningIn": {
+    "message": "Google にログインしています…"
+  },
+  "phaseChecking": {
+    "message": "Gmail を確認しています…"
+  },
+  "phaseWaiting": {
+    "message": "メールを待っています…"
+  },
+  "phaseWaitingDetail": {
+    "message": "あと $SECONDS$ 秒間、数秒おきに確認します。このウィンドウは閉じても構いません。",
+    "placeholders": {
+      "seconds": {
+        "content": "$1",
+        "example": "42"
+      }
+    }
+  },
+  "phaseFilling": {
+    "message": "ページに入力しています…"
+  },
+  "resultFilled": {
+    "message": "入力しました"
+  },
+  "resultFound": {
+    "message": "見つかりましたが、入力していません"
+  },
+  "resultFromSender": {
+    "message": "送信元: $SENDER$、$AGO$",
+    "placeholders": {
+      "sender": {
+        "content": "$1",
+        "example": "Acme"
+      },
+      "ago": {
+        "content": "$2",
+        "example": "2 分前"
+      }
+    }
+  },
+  "resultNoField": {
+    "message": "このページにコード入力欄がありません。コードをコピーして貼り付けてください。"
+  },
+  "resultRejected": {
+    "message": "ページがコードを受け付けませんでした。コードをコピーして貼り付けてください。"
+  },
+  "resultBlocked": {
+    "message": "このページでは拡張機能が使えません。コードをコピーして貼り付けてください。"
+  },
+  "resultGone": {
+    "message": "コードが届く前にタブが閉じられました。"
+  },
+  "resultNone": {
+    "message": "過去 $MINUTES$ 分以内に認証コードのメールはありません。",
+    "placeholders": {
+      "minutes": {
+        "content": "$1",
+        "example": "10"
+      }
+    }
+  },
+  "resultNoneHint": {
+    "message": "コードがこの Gmail アドレス宛てに送られたか確認してください。設定でさらに過去まで検索することもできます。"
+  },
+  "resultCancelled": {
+    "message": "停止しました。"
+  },
+  "agoNow": {
+    "message": "たった今"
+  },
+  "agoMinutes": {
+    "message": "$N$ 分前",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "settingsTitle": {
+    "message": "設定"
+  },
+  "settingsBack": {
+    "message": "戻る"
+  },
+  "settingsAccount": {
+    "message": "Gmail アカウント"
+  },
+  "settingsLookback": {
+    "message": "検索期間"
+  },
+  "settingsLookbackOption": {
+    "message": "$N$ 分",
+    "placeholders": {
+      "n": {
+        "content": "$1",
+        "example": "10"
+      }
+    }
+  },
+  "settingsLookbackHint": {
+    "message": "この期間内に届いたメールのコードだけを使います。"
+  },
+  "settingsShortcut": {
+    "message": "キーボード ショートカット"
+  },
+  "settingsShortcutChange": {
+    "message": "変更"
+  },
+  "settingsClient": {
+    "message": "OAuth クライアント"
+  },
+  "settingsRedirect": {
+    "message": "リダイレクト URI"
+  },
+  "settingsChangeClient": {
+    "message": "クライアント ID を変更"
+  },
+  "disconnect": {
+    "message": "Gmail の接続を解除"
+  },
+  "notConnected": {
+    "message": "未接続"
+  },
+  "privacyLink": {
+    "message": "プライバシー"
+  },
+  "sourceLink": {
+    "message": "ソースコード"
+  },
+  "versionLabel": {
+    "message": "バージョン $VERSION$",
+    "placeholders": {
+      "version": {
+        "content": "$1",
+        "example": "2.0.0"
+      }
+    }
+  },
+  "toastWaiting": {
+    "message": "認証コードのメールを待っています…"
+  },
+  "toastFilled": {
+    "message": "$SENDER$ からのコードを入力しました",
+    "placeholders": {
+      "sender": {
+        "content": "$1",
+        "example": "bank.co.jp"
+      }
+    }
+  },
+  "toastNoField": {
+    "message": "コードは見つかりましたが、ここには入力欄がありません。Q-Fill のポップアップからコピーしてください。"
+  },
+  "toastRejected": {
+    "message": "コードは見つかりましたが、ページに受け付けられませんでした。Q-Fill のポップアップからコピーしてください。"
+  },
+  "toastNoCode": {
+    "message": "新しい認証コードのメールは届いていません。"
+  },
+  "toastConnectFirst": {
+    "message": "先にツールバーから Q-Fill を開き、Gmail に接続してください。"
+  },
+  "errorNoClientId": {
+    "message": "先に OAuth クライアント ID を追加してください。"
+  },
+  "errorSignInCancelled": {
+    "message": "ログインが完了する前に Google のウィンドウが閉じました。Google に redirect_uri_mismatch と表示された場合は、設定のリダイレクト URI を OAuth クライアントに追加してください。"
+  },
+  "errorAccessDenied": {
+    "message": "Google がアクセスを許可しませんでした。OAuth アプリがテスト中の場合は、自分の Gmail アドレスをテストユーザーに追加してください。"
+  },
+  "errorScopeDenied": {
+    "message": "Google の画面で「メールメッセージと設定の閲覧」を許可してください。Q-Fill がコードを探すために必要です。"
+  },
+  "errorSignInAgain": {
+    "message": "Google のログインの有効期限が切れました。「コードを入力」を押して、もう一度ログインしてください。"
+  },
+  "errorSignInFailed": {
+    "message": "Google へのログインに失敗しました: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "invalid_client"
+      }
+    }
+  },
+  "errorOffline": {
+    "message": "Gmail に接続できません。インターネット接続を確認してください。"
+  },
+  "errorGmailForbidden": {
+    "message": "Gmail がリクエストを拒否しました。Google Cloud プロジェクトで Gmail API が有効になっているか確認してください。"
+  },
+  "errorRateLimited": {
+    "message": "Gmail から Q-Fill へのリクエストが制限されました。1分ほど待ってからやり直してください。"
+  },
+  "errorGmail": {
+    "message": "Gmail エラー: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "Backend Error"
+      }
+    }
+  },
+  "errorUnexpected": {
+    "message": "問題が発生しました: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "TypeError"
+      }
+    }
+  },
+  "toastBlocked": {
+    "message": "Q-Fill はコードを見つけましたが、入力しませんでした。理由は Q-Fill を開いて確認してください。"
+  },
+  "toastOriginChanged": {
+    "message": "コードを入力する前にページが変わりました。何も入力していません。"
+  },
+  "resultOrigin": {
+    "message": "ページが、コードの送信対象のサイトではなくなったため、入力しませんでした。"
+  },
+  "unknownSender": {
+    "message": "不明な送信元"
+  },
+  "unknownSite": {
+    "message": "https ページではありません"
+  },
+  "blockedMismatch": {
+    "message": "サイトが異なります"
+  },
+  "blockedMismatchNote": {
+    "message": "このコードは、表示中のページとは別のサイトから送られています。両方が同じサービスのものだと確信できる場合にのみ入力してください。フィッシングページは、この方法でコードを求めます。"
+  },
+  "blockedUnverified": {
+    "message": "送信元を確認できません"
+  },
+  "blockedUnverifiedNote": {
+    "message": "このメールが本当に送信元のドメインから届いたものか、Gmail は確認できませんでした。偽造されたメールの可能性があります。"
+  },
+  "blockedSpam": {
+    "message": "迷惑メールフォルダ内のメール"
+  },
+  "blockedSpamNote": {
+    "message": "このメールは迷惑メールに入っています。届くのを予期していた場合にのみ入力してください。"
+  },
+  "blockedNoSite": {
+    "message": "このページには入力しません"
+  },
+  "blockedNoSiteNote": {
+    "message": "Q-Fill は https ページにのみコードを入力します。代わりにコードをコピーできます。"
+  },
+  "confirmSender": {
+    "message": "送信元"
+  },
+  "confirmSite": {
+    "message": "このページ"
+  },
+  "rememberPair": {
+    "message": "$SITE$ では $SENDER$ からのコードを常に信頼する",
+    "placeholders": {
+      "sender": {
+        "content": "$1",
+        "example": "bank.co.jp"
+      },
+      "site": {
+        "content": "$2",
+        "example": "bankpay.jp"
+      }
+    }
+  },
+  "fillAnyway": {
+    "message": "それでも $SITE$ に入力",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "bankpay.jp"
+      }
+    }
+  },
+  "settingsSuggest": {
+    "message": "入力欄での候補表示"
+  },
+  "settingsSuggestLabel": {
+    "message": "入力欄の下に候補を出す"
+  },
+  "settingsSuggestHint": {
+    "message": "スマートフォンの SMS 認証コードと同じように、コード入力欄を選ぶと、同じサイトから届いたコードを提案します。コードはクリックするまでページに渡しません。https サイトへのアクセス権が必要で、Chrome が許可を求めます。"
+  },
+  "settingsAutoStart": {
+    "message": "ポップアップを開いたとき"
+  },
+  "settingsAutoStartLabel": {
+    "message": "すぐに検索を開始"
+  },
+  "settingsPairs": {
+    "message": "信頼する送信元"
+  },
+  "settingsPairsEmpty": {
+    "message": "なし。サイトとは別のドメインからコードが届いたときに、組み合わせを承認できます。"
+  },
+  "remove": {
+    "message": "削除"
+  },
+  "suggestFrom": {
+    "message": "$DOMAIN$ からの認証コード",
+    "placeholders": {
+      "domain": {
+        "content": "$1",
+        "example": "bank.co.jp"
+      }
+    }
+  },
+  "suggestFill": {
+    "message": "入力"
+  },
+  "suggestClose": {
+    "message": "閉じる"
+  },
+  "suggestNoField": {
+    "message": "入力できるコード欄がありません。"
+  },
+  "suggestFailed": {
+    "message": "入力できませんでした。Q-Fill を開いて、もう一度お試しください。"
+  },
+  "toastBlockedWaiting": {
+    "message": "別のサイト、または確認できない送信元からのコードが見つかりました。正しいコードを待っています。確認するには Q-Fill を開いてください。"
+  }
+}

@@ -4,7 +4,7 @@ Q-Fill reads your email, so security reports matter a lot here.
 
 ## Report a vulnerability
 
-Please **do not open a public issue**. Report it privately through [GitHub's private vulnerability reporting](https://github.com/qbeka/Q-Fill-For-Gmail/security/advisories/new).
+Please **do not open a public issue**. Report it privately through [GitHub's private vulnerability reporting](https://github.com/taqwq/Q-Fill-For-Gmail/security/advisories/new). Issues that also affect the original project belong at [qbeka/Q-Fill-For-Gmail](https://github.com/qbeka/Q-Fill-For-Gmail/security/advisories/new).
 
 Include what an attacker could do, the steps to reproduce it, and the browser and Q-Fill version you used. You should get a first reply within a week. Once a fix ships, you will be credited in the release notes unless you prefer not to be.
 

@@ -8,8 +8,15 @@
  *
  * Automated browsers cannot click the toolbar icon, which is what grants
  * activeTab. The test copy of the extension is given access to
- * http://localhost/* instead. Pages on 127.0.0.1 stay off limits, which
- * stands in for a cross-origin frame the extension may not touch.
+ * https://*.test/* instead.
+ *
+ * Q-Fill only fills https pages whose domain matches the email's sender, so
+ * the playground is served on made-up https hosts through Playwright's
+ * request routing (no certificates, no network):
+ *
+ *   https://login.acme.test       the site the test emails come from
+ *   https://pay.evil.test         another site the extension may access
+ *   https://pay.example.invalid   a site the extension may not access
  */
 
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -39,20 +46,45 @@ export async function startServer() {
   return { port: server.address().port, close: () => new Promise(resolve => server.close(resolve)) };
 }
 
-/** Copies the extension and grants it localhost access for testing. */
-async function testCopy() {
+/** The site the fake inbox's emails come from, and its pages. */
+export const SITE = 'https://login.acme.test';
+export const BASE = `${SITE}/playground`;
+
+/**
+ * Copies the extension and grants it access to the test hosts.
+ * @param {{ grantAll?: boolean }} options - grantAll grants every https site,
+ *   as if you had turned on suggestions.
+ */
+async function testCopy({ grantAll = false } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'qfill-e2e-'));
   await cp(join(ROOT, 'extension'), dir, { recursive: true });
   const manifestPath = join(dir, 'manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  manifest.host_permissions.push('http://localhost/*');
+  manifest.host_permissions.push(grantAll ? 'https://*/*' : 'https://*.test/*');
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
   return dir;
 }
 
-/** @param {import('playwright').BrowserContextOptions} [options] */
-export async function launch(options = {}) {
-  const extensionDir = await testCopy();
+/**
+ * Serves the repository root on the made-up https hosts.
+ * @param {import('playwright').BrowserContext} context
+ */
+export async function servePlayground(context) {
+  await context.route(url => url.protocol === 'https:' && /\.(?:test|invalid)$/.test(url.hostname), async route => {
+    const url = new URL(route.request().url());
+    const path = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
+    try {
+      const body = await readFile(join(ROOT, /[/\\]$/.test(path) ? `${path}index.html` : path));
+      await route.fulfill({ status: 200, contentType: TYPES[extname(path)] || 'text/html', body });
+    } catch {
+      await route.fulfill({ status: 404, body: 'Not found' });
+    }
+  });
+}
+
+/** @param {import('playwright').BrowserContextOptions & { grantAll?: boolean }} [options] */
+export async function launch({ grantAll = false, ...options } = {}) {
+  const extensionDir = await testCopy({ grantAll });
   const userDataDir = await mkdtemp(join(tmpdir(), 'qfill-profile-'));
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: 'chromium',
@@ -60,6 +92,8 @@ export async function launch(options = {}) {
     args: [`--disable-extensions-except=${extensionDir}`, `--load-extension=${extensionDir}`],
     ...options
   });
+
+  await servePlayground(context);
 
   let [worker] = context.serviceWorkers();
   if (!worker) worker = await context.waitForEvent('serviceworker');
@@ -93,16 +127,22 @@ export async function installFakeGmail(worker) {
 
     globalThis.__inbox = [];
     globalThis.__gmailCalls = [];
-    globalThis.__addEmail = (subject, text, ageMs = 0) => {
-      const id = `m${globalThis.__inbox.length + 1}`;
+    globalThis.__addEmail = (subject, text, ageMs = 0, options = {}) => {
+      globalThis.__nextId = (globalThis.__nextId || 0) + 1;
+      const id = `m${globalThis.__nextId}`;
+      const from = options.from ?? 'Acme Security <no-reply@acme.test>';
+      const domain = from.match(/@([^>\s]+)/)?.[1] ?? '';
+      // What Gmail writes on mail that passes DMARC. null leaves it out, as on a forged email.
+      const auth = options.auth === undefined
+        ? `mx.google.com;\r\n       dkim=pass header.i=@${domain} header.s=s1;\r\n       dmarc=pass (p=REJECT) header.from=${domain}`
+        : options.auth;
+      const headers = [{ name: 'Subject', value: subject }, { name: 'From', value: from }];
+      if (auth) headers.unshift({ name: 'Authentication-Results', value: auth });
       globalThis.__inbox.push({
         id,
         internalDate: String(Date.now() - ageMs),
-        payload: {
-          mimeType: 'text/plain',
-          headers: [{ name: 'Subject', value: subject }, { name: 'From', value: 'Acme Security <no-reply@acme.test>' }],
-          body: { data: b64url(text) }
-        }
+        labelIds: options.spam ? ['SPAM'] : ['INBOX'],
+        payload: { mimeType: 'text/plain', headers, body: { data: b64url(text) } }
       });
       return id;
     };
@@ -130,9 +170,50 @@ export async function installFakeGmail(worker) {
   });
 }
 
+/**
+ * @param {import('playwright').Worker} worker
+ * @param {string} subject
+ * @param {string} text
+ * @param {number} [ageMs]
+ * @param {{ from?: string, auth?: string|null, spam?: boolean }} [options]
+ */
+export function addEmail(worker, subject, text, ageMs = 0, options = {}) {
+  return worker.evaluate(([s, t, a, o]) => globalThis.__addEmail(s, t, a, o), [subject, text, ageMs, options]);
+}
+
+/**
+ * Sends one message to the service worker the way the popup does.
+ * @param {{ context: import('playwright').BrowserContext, extensionId: string }} env
+ * @param {object} message
+ */
+export async function popupSend(env, message) {
+  const driver = await env.context.newPage();
+  await driver.goto(`chrome-extension://${env.extensionId}/popup/popup.html?view=page`);
+  await driver.evaluate(m => {
+    const port = chrome.runtime.connect({ name: 'qfill-popup' });
+    port.postMessage(m);
+  }, message);
+  await driver.waitForTimeout(300);
+  await driver.close();
+}
+
 /** @param {import('playwright').Worker} worker */
-export function addEmail(worker, subject, text, ageMs = 0) {
-  return worker.evaluate(([s, t, a]) => globalThis.__addEmail(s, t, a), [subject, text, ageMs]);
+export function lastResult(worker) {
+  return worker.evaluate(async () => (await chrome.storage.session.get('lastResult')).lastResult ?? null);
+}
+
+/**
+ * Waits until the stored result is newer than `previousAt`.
+ * @param {import('playwright').Worker} worker
+ */
+export async function waitForResult(worker, previousAt = 0, timeout = 20_000) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const last = await lastResult(worker);
+    if (last && last.at !== previousAt) return last;
+    if (Date.now() > deadline) throw new Error('No new result in time');
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
 }
 
 /**
@@ -151,7 +232,7 @@ export async function runFind(env, page, { timeout = 20_000 } = {}) {
 
   await env.worker.evaluate(() => chrome.storage.session.remove('lastResult'));
   const driver = await env.context.newPage();
-  await driver.goto(`chrome-extension://${env.extensionId}/popup/popup.html`);
+  await driver.goto(`chrome-extension://${env.extensionId}/popup/popup.html?view=page`);
   await driver.evaluate(id => {
     globalThis.__port = chrome.runtime.connect({ name: 'qfill-popup' });
     globalThis.__port.postMessage({ type: 'find', tabId: id });
@@ -171,4 +252,39 @@ export async function runFind(env, page, { timeout = 20_000 } = {}) {
     }
     await new Promise(resolve => setTimeout(resolve, 150));
   }
+}
+
+/**
+ * Starts a find like runFind, but resolves as soon as the popup is offered a
+ * blocked code (from another site, an unverified sender or Spam). The run
+ * keeps waiting for a matching code in the background; stop it with
+ * popupSend(env, { type: 'cancel' }) or fill it with { type: 'fillBlocked' }.
+ * @param {{ context: import('playwright').BrowserContext, extensionId: string, worker: import('playwright').Worker }} env
+ * @param {import('playwright').Page} page
+ */
+export async function findUntilBlocked(env, page, { timeout = 20_000 } = {}) {
+  const url = page.url();
+  const tabId = await env.worker.evaluate(async target => {
+    const tabs = await chrome.tabs.query({});
+    return tabs.find(tab => tab.url === target)?.id;
+  }, url);
+  if (tabId === undefined) throw new Error(`No tab for ${url}`);
+  await env.worker.evaluate(() => chrome.storage.session.remove('lastResult'));
+
+  const driver = await env.context.newPage();
+  await driver.goto(`chrome-extension://${env.extensionId}/popup/popup.html?view=page`);
+  const blocked = await driver.evaluate(([id, ms]) => new Promise((resolve, reject) => {
+    const port = chrome.runtime.connect({ name: 'qfill-popup' });
+    const timer = setTimeout(() => reject(new Error('No blocked code offered in time')), ms);
+    port.onMessage.addListener(state => {
+      if (state?.job?.blocked) {
+        clearTimeout(timer);
+        resolve(state.job.blocked);
+      }
+    });
+    port.postMessage({ type: 'find', tabId: id });
+  }), [tabId, timeout]);
+  await page.bringToFront();
+  await driver.close();
+  return blocked;
 }

@@ -3,7 +3,7 @@
  * service worker sends and forwards button presses back to it.
  */
 
-import { CLIENT_ID_PATTERN, LOOKBACK_CHOICES, PHASE, PORT_NAME, REQUEST, STATE } from '../shared/constants.js';
+import { CLIENT_ID_PATTERN, LOOKBACK_CHOICES, PHASE, PORT_NAME, REQUEST, STATE, SUGGEST_ORIGINS } from '../shared/constants.js';
 import { t } from '../shared/i18n.js';
 
 const $ = id => document.getElementById(id);
@@ -19,6 +19,8 @@ let state = null;
 let showSettings = false;
 let editingClient = false;
 let countdownTimer = 0;
+/** The popup starts a search on its own at most once per opening. */
+let autoStarted = false;
 
 if (new URLSearchParams(location.search).get('view') === 'page') document.body.classList.add('page');
 
@@ -45,6 +47,7 @@ function connectPort() {
     if (message?.type === STATE) {
       state = message;
       render();
+      maybeAutoStart();
     }
   });
   // The service worker can restart; reconnect so the popup keeps updating.
@@ -60,6 +63,21 @@ function send(type, payload = {}) {
 }
 
 connectPort();
+
+/**
+ * Opening the popup is the one tap: start looking right away, unless a
+ * result from the last minute is still worth reading first.
+ */
+async function maybeAutoStart() {
+  if (autoStarted || !state?.autoStart || !state.clientId || !state.email || state.job || state.connecting) return;
+  if (document.body.classList.contains('page')) return;
+  autoStarted = true;
+  // Opened as a tab rather than as the toolbar popup: there is no page to fill.
+  if (await chrome.tabs.getCurrent()) return;
+  if (state.last && Date.now() - (state.last.at || 0) < 60_000) return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id !== undefined) send(REQUEST.FIND, { tabId: tab.id });
+}
 
 // ---------------------------------------------------------------------------
 // Rendering
@@ -109,7 +127,8 @@ function renderMain() {
 
   $('fillHint').hidden = Boolean(job || last);
   renderProgress(job);
-  renderResult(job ? null : last);
+  // While still waiting, a blocked code is shown so you can decide now.
+  renderResult(job ? (job.blocked ? { status: 'blocked', ...job.blocked } : null) : last);
 }
 
 function renderProgress(job) {
@@ -140,12 +159,14 @@ function renderResult(last) {
   box.hidden = !last;
   if (!last) return;
 
-  const hasCode = last.status === 'filled' || last.status === 'found';
+  const hasCode = last.status === 'filled' || last.status === 'found' || last.status === 'blocked';
   $('codeRow').hidden = !hasCode;
   $('resultCode').textContent = hasCode ? last.code : '';
-  $('resultMeta').textContent = hasCode && last.from !== undefined
-    ? t('resultFromSender', [last.from || 'Gmail', timeAgo(last.receivedAt)])
+  // The verified domain, never the display name, which anyone can forge.
+  $('resultMeta').textContent = hasCode && last.senderDomain !== undefined
+    ? t('resultFromSender', [last.senderDomain || t('unknownSender'), timeAgo(last.receivedAt)])
     : '';
+  renderConfirm(last);
 
   const copy = $('copyCode');
   copy.textContent = t('copy');
@@ -161,7 +182,22 @@ function renderResult(last) {
     case 'found':
       badge = t('resultFound');
       tone = 'error';
-      note = t({ 'no-field': 'resultNoField', blocked: 'resultBlocked', gone: 'resultGone' }[last.reason] || 'resultRejected');
+      note = t({ 'no-field': 'resultNoField', blocked: 'resultBlocked', gone: 'resultGone', origin: 'resultOrigin' }[last.reason] || 'resultRejected');
+      break;
+    case 'blocked':
+      badge = t({
+        mismatch: 'blockedMismatch',
+        unverified: 'blockedUnverified',
+        spam: 'blockedSpam',
+        'no-site': 'blockedNoSite'
+      }[last.verdict] || 'blockedMismatch');
+      tone = 'error';
+      note = t({
+        mismatch: 'blockedMismatchNote',
+        unverified: 'blockedUnverifiedNote',
+        spam: 'blockedSpamNote',
+        'no-site': 'blockedNoSiteNote'
+      }[last.verdict] || 'blockedMismatchNote');
       break;
     case 'none':
       badge = t('resultNone', last.lookbackMinutes ?? state.lookbackMinutes);
@@ -181,12 +217,49 @@ function renderResult(last) {
   $('resultNote').textContent = note;
 }
 
+function renderConfirm(last) {
+  const box = $('confirm');
+  const canFill = last.status === 'blocked' && Boolean(last.site) && ['mismatch', 'unverified', 'spam'].includes(last.verdict);
+  box.hidden = last.status !== 'blocked';
+  if (box.hidden) return;
+
+  $('confirmSender').textContent = last.senderDomain || t('unknownSender');
+  $('confirmSite').textContent = last.site || t('unknownSite');
+
+  const button = $('fillAnyway');
+  button.hidden = !canFill;
+  button.textContent = t('fillAnyway', last.site || '');
+
+  // Only a sender Gmail authenticated may be remembered.
+  const rememberRow = $('rememberRow');
+  rememberRow.hidden = !(canFill && last.verdict === 'mismatch' && last.verified);
+  $('rememberLabel').textContent = t('rememberPair', [last.senderDomain || '', last.site || '']);
+  if (rememberRow.hidden) $('rememberPair').checked = false;
+}
+
 function renderSettings() {
   $('settingsEmail').textContent = state.email || t('notConnected');
   lookbackSelect.value = String(state.lookbackMinutes);
   const shortcut = $('settingsShortcut');
   shortcut.textContent = state.shortcut || t('shortcutNone');
   $('settingsClientId').textContent = state.clientId;
+  $('suggestToggle').checked = Boolean(state.suggestEnabled);
+  $('autoStartToggle').checked = Boolean(state.autoStart);
+
+  const list = $('pairList');
+  list.replaceChildren(...(state.trustedPairs || []).map(pair => {
+    const item = document.createElement('li');
+    const code = document.createElement('code');
+    code.textContent = pair.replace(' -> ', ' → ');
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'text-button';
+    remove.textContent = t('remove');
+    remove.addEventListener('click', () => send(REQUEST.REMOVE_PAIR, { pair }));
+    item.append(code, remove);
+    return item;
+  }));
+  $('pairsEmpty').hidden = Boolean(state.trustedPairs?.length);
   $('settingsRedirect').textContent = state.redirectUri;
 }
 
@@ -230,6 +303,35 @@ $('fillButton').addEventListener('click', async () => {
 });
 
 $('cancelButton').addEventListener('click', () => send(REQUEST.CANCEL));
+
+$('fillAnyway').addEventListener('click', () => {
+  send(REQUEST.FILL_BLOCKED, { remember: $('rememberPair').checked && !$('rememberRow').hidden });
+  $('rememberPair').checked = false;
+});
+
+$('suggestToggle').addEventListener('change', async event => {
+  const toggle = event.currentTarget;
+  if (toggle.checked) {
+    // Save the choice first: Chrome's prompt can close this popup before the
+    // answer arrives. The service worker registers the script once granted.
+    send(REQUEST.SET_SUGGEST, { enabled: true });
+    // Must be asked inside the click. Chrome shows its own permission prompt.
+    let granted = false;
+    try {
+      granted = await chrome.permissions.request({ origins: [...SUGGEST_ORIGINS] });
+    } catch {
+      granted = false;
+    }
+    toggle.checked = granted;
+    if (!granted) send(REQUEST.SET_SUGGEST, { enabled: false });
+    return;
+  }
+  send(REQUEST.SET_SUGGEST, { enabled: false });
+});
+
+$('autoStartToggle').addEventListener('change', event => {
+  send(REQUEST.SET_AUTO_START, { enabled: event.currentTarget.checked });
+});
 
 $('openSettings').addEventListener('click', () => {
   showSettings = true;

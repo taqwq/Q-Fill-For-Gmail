@@ -606,3 +606,68 @@ select {
   white-space: normal;
   word-break: break-all;
 }
+
+/* Domain check: confirm before filling a code from another site */
+
+.confirm {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.domains {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.domains div {
+  display: flex;
+  gap: 12px;
+}
+
+.domains dt {
+  min-width: 6em;
+  color: var(--muted);
+}
+
+.domains dd {
+  margin: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.check input {
+  margin: 2px 0 0;
+  flex: none;
+}
+
+.pairs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.pairs li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pairs code {
+  overflow-wrap: anywhere;
+}
+
+.pairs:empty {
+  display: none;
+}

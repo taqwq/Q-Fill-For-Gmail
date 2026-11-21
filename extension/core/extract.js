@@ -20,23 +20,58 @@ const NAMED_ENTITIES = {
 };
 
 /**
+ * A letter that is not Chinese, Japanese or Korean. Those scripts write words
+ * without spaces, so "認証コードは123456です" has letters glued to both sides
+ * of the code. Only Latin-like letters count as "part of the same word".
+ */
+const WORD_LETTER = String.raw`(?:(?![\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Hangul}])\p{L})`;
+
+/**
  * Words that label a code. Matched case-insensitively.
  * The bare words (code, pin, token) only count when they are not part of a
  * phrase such as "promo code" or "zip code", see NOT_A_CODE_LABEL.
  */
-const LABEL_SOURCE = [
+const LATIN_LABEL_SOURCE = [
   String.raw`(?:one[- ]?time|temporary|single[- ]use)\s+(?:pass(?:word|code)|code|pin)`,
   String.raw`(?:verification|verify|security|confirmation|confirm|login|log-?in|sign-?in|sign in|authentication|authenticate|auth|access|2fa|mfa|two[- ]factor|sms|email|device|activation|approval|identity)\s+(?:code|pin|token|passcode)`,
   String.raw`passcode`, String.raw`otp`, String.raw`code`, String.raw`pin`, String.raw`token`,
   String.raw`c[oó]digo`, String.raw`codice`, String.raw`k[oó]d(?:u|em)?`, String.raw`kode`,
   String.raw`koodi`, String.raw`код(?:а|ом)?`, String.raw`κωδικός`, String.raw`mã`,
-  String.raw`[a-zäöü]*(?:code|kode)`,
-  String.raw`認証コード`, String.raw`確認コード`, String.raw`コード`, String.raw`验证码`,
-  String.raw`驗證碼`, String.raw`校验码`, String.raw`인증\s?번호`, String.raw`인증\s?코드`
+  String.raw`[a-zäöü]*(?:code|kode)`
 ].join('|');
 
-/** A label word must not be glued to other letters on either side. */
-const LABEL = new RegExp(`(?<![\\p{L}\\p{N}])(?:${LABEL_SOURCE})(?![\\p{L}\\p{N}])`, 'giu');
+/**
+ * Chinese, Japanese and Korean labels. Longer phrases first, so that
+ * "ワンタイムパスワード" is one label and not just "パスワード".
+ * Text is NFKC-normalised first, so half-width katakana and full-width
+ * letters ("ＰＩＮ") arrive in their usual form.
+ */
+const CJK_LABEL_SOURCE = [
+  String.raw`ワンタイム\s?(?:パスワード|パスコード|コード|キー|PIN|認証コード|暗証番号)`,
+  String.raw`(?:本人|ログイン|サインイン|ご本人様)?確認(?:用)?(?:コード|番号|キー|PIN)`,
+  String.raw`(?:ログイン|サインイン|メール|SMS|二段階|2段階|多要素)?認証(?:用)?(?:コード|番号|キー|PIN|パスワード)`,
+  String.raw`(?:ログイン|サインイン)(?:用)?(?:コード|PIN)`,
+  String.raw`(?:承認|検証|照合|セキュリティ|アクティベーション)コード`,
+  String.raw`パスコード`, String.raw`PIN\s?(?:コード|番号)`, String.raw`コード`,
+  String.raw`验证码`, String.raw`驗證碼`, String.raw`校验码`, String.raw`动态码`,
+  String.raw`인증\s?번호`, String.raw`인증\s?코드`
+].join('|');
+
+/**
+ * A Latin label word must not be glued to other Latin letters or digits on
+ * either side. CJK labels need no such boundary.
+ */
+const LABEL = new RegExp(
+  `(?<!${WORD_LETTER}|\\p{N})(?:${LATIN_LABEL_SOURCE})(?!${WORD_LETTER}|\\p{N})|(?:${CJK_LABEL_SOURCE})`,
+  'giu'
+);
+
+/** Japanese words that, right before "コード", make it some other code. */
+const NOT_A_CODE_LABEL_JA =
+  /(?:クーポン|プロモーション|プロモ|招待|紹介|割引き?|値引き?|バー|QR|二次元|ギフト|商品|注文|予約|追跡|郵便|ソース|エラー|ステータス|国|地域|識別|会員|お客様|顧客|管理|ポイント|キャンペーン|特典|引換|引き換え|交換|ダウンロード|シリアル|プロダクト|ドレス|カラー|文字|色|JAN|銀行|支店|店舗|ショップ|ライセンス|プレゼント|入場|チケット|優待|友達|フレンド|ストア|決済)\s*$/i;
+
+/** Japanese words right after "コード" that make it some other thing. */
+const NOT_A_CODE_AFTER_JA = /^(?:決済|レス|ネーム|表|進行|譜|化|を読み取|をスキャン|をかざ)/;
 
 /** "code" preceded by one of these is not a verification code. */
 const NOT_A_CODE_LABEL =
@@ -44,35 +79,46 @@ const NOT_A_CODE_LABEL =
 
 /** Words that, right before a token, mean it is some other kind of number. */
 const OTHER_NUMBER =
-  /(?:order|invoice|receipt|ref|reference|account|acct|ticket|case|tracking|booking|reservation|itinerary|flight|zip|postal|suite|apt|unit|room|phone|tel|telephone|fax|call|ext|extension|sku|model|serial|item|member|customer|policy|loan|card|ending in|last four|no\.?|number|nr\.?|id)\s*[:#.]?\s*$/i;
+  /(?:order|invoice|receipt|ref|reference|account|acct|ticket|case|tracking|booking|reservation|itinerary|flight|zip|postal|suite|apt|unit|room|phone|tel|telephone|fax|call|ext|extension|sku|model|serial|item|member|customer|policy|loan|card|ending in|last four|no\.?|number|nr\.?|id|注文番号|注文ID|会員番号|会員ID|お客様番号|顧客番号|問い?合わ?せ番号|受付番号|予約番号|伝票番号|追跡番号|配送番号|口座番号|電話番号|電話|携帯|郵便番号|請求番号|請求書番号|管理番号|契約番号|証券番号|整理番号|申込番号|申し?込み番号|取引番号|決済番号|承認番号|暗証番号|品番|型番|商品番号|部屋番号|座席番号|便名|口座|カード番号|末尾|下4桁|ポイント番号|会員証番号|住所|番地|〒)\s*[:#.]?\s*$/i;
 
 /** Marketing context that makes a token a promo code, never an OTP. */
-const PROMO = /(?:promo|coupon|discount|voucher|referral|gift card|\d+\s?%|\boff\b|save|sale|deal|at checkout|redeem)/i;
+const PROMO = /(?:promo|coupon|discount|voucher|referral|gift card|\d+\s?%|\boff\b|save|sale|deal|at checkout|redeem|クーポン|割引|値引|セール|特典|キャンペーン|プレゼント|円引|オフ|お得)/i;
 
 /** Meeting invites carry passcodes and PINs that are not for signing in. */
-const MEETING = /(?:meeting|zoom|webex|teams|webinar|conference|dial[- ]?in|join by phone|call-in|bridge)/i;
+const MEETING = /(?:meeting|zoom|webex|teams|webinar|conference|dial[- ]?in|join by phone|call-in|bridge|ミーティング|会議|ウェビナー|セミナー|ダイヤルイン)/i;
 
 /** PINs that belong to something other than a sign-in. */
 const OTHER_PIN = /(?:support|account|card|atm|sim|voicemail|door|gate|customer|phone|parking)\s+pin\s*[:#]?\s*$/i;
 
 /** Wording right after a token that says it is no longer the code to use. */
 const EXPIRED_AFTER = /^\W{0,3}(?:has|had|have|is|was)?\s*(?:expired|no longer valid|been used|already used|invalid|cancell?ed|replaced)/i;
+const EXPIRED_AFTER_JA = /^[\s」』】)\]]{0,3}(?:は|が)?(?:既に|すでに)?(?:無効|使用済み?|失効|期限切れ|利用できません|使用できません|使えません)/;
 
 /** An email that reads like marketing. Codes in it need verification wording to count. */
-const PROMO_EMAIL = /(?:promo code|coupon|discount|voucher|\d+\s?% off|use code|redeem|gift card|referral)/i;
+const PROMO_EMAIL = /(?:promo code|coupon|discount|voucher|\d+\s?% off|use code|redeem|gift card|referral|クーポン|割引|セール|キャンペーン|%OFF|円OFF|% ?オフ|プレゼント)/i;
 
 /** Compound words that end in "code" but are not verification codes. */
 const NOT_A_CODE_WORD = /^(?:bar|zip|post|promo|source|qr|area|dress|error|status|swift|sort|tax|country)code$/i;
 
 /** Words that join a label to its token: "code is 123", "código es 123". */
-const IS_WORD = String.raw`(?:(?<!\p{L})(?:is|es|est|ist|lautet|è|é|är|er|jest|je|wynosi|to)|为|為|是|は)`;
+const IS_WORD = String.raw`(?:(?<!\p{L})(?:is|es|est|ist|lautet|è|é|är|er|jest|je|wynosi|to)|为|為|是|は|が)`;
+
+/** Opening quotes and brackets that may wrap a code: "482913", 「482913」, 【482913】. */
+const OPEN_QUOTE = String.raw`["'“«(\[「『【〈《〔]`;
+
+/** Closing brackets that may follow a code. */
+const CLOSE_QUOTE = String.raw`["'”»)\]」』】〉》〕]`;
+
+/** Units and counters after a number that make it a quantity, date or price. */
+const UNIT_AFTER =
+  /^\s*(?:usd|eur|gbp|cad|aud|jpy|dollars?|euros?|points|miles|pts|reviews?|items?|people|users|followers|views|steps|calories|kb|mb|gb|km|mi|ms|px)\b|^ ?(?:円|件|名|人|点|個|枚|本|日|年|月|時|分|秒|回|歳|才|ポイント|万|億|千|株|口|位|号|番地|番|階|丁目|部|室|台|冊|杯|泊|kg|cm|mm)/i;
 
 /** Any of these anywhere in the email shows it is about verification. */
 const STRONG_INTENT =
-  /(verif|one[- ]?time|otp|2fa|mfa|two[- ]factor|2-step|two-step|passcode|security code|login code|sign[- ]?in code|authenticat|confirmation code|access code|c[oó]digo|codice|bestätigung|sicherheitscode|anmeldecode|vérification|kod|код|подтвержд|認証|確認コード|验证码|驗證碼|인증)/iu;
+  /(verif|one[- ]?time|otp|2fa|mfa|two[- ]factor|2-step|two-step|passcode|security code|login code|sign[- ]?in code|authenticat|confirmation code|access code|c[oó]digo|codice|bestätigung|sicherheitscode|anmeldecode|vérification|kod|код|подтвержд|認証|確認コード|確認番号|ワンタイム|本人確認|パスコード|二段階|2段階|多要素|セキュリティコード|ログインコード|验证码|驗證碼|인증)/iu;
 
 /** Weaker hints that also appear in marketing footers ("Log in to your account"). */
-const WEAK_INTENT = /(sign[- ]?in|log[- ]?in|confirm your|connexion|anmeld)/iu;
+const WEAK_INTENT = /(sign[- ]?in|log[- ]?in|confirm your|connexion|anmeld|ログイン|サインイン)/iu;
 
 const THRESHOLD = 60;
 const BEFORE_WINDOW = 160;
@@ -84,9 +130,9 @@ const AFTER_WINDOW = 90;
  * hashtags and parts of longer numbers.
  */
 const TOKEN = new RegExp(
-  String.raw`(?<![\p{L}\p{N}$€£¥₹#@+&_/\\©])(?<!\p{N}[.,:/-])` +
+  String.raw`(?<!${WORD_LETTER})(?<![\p{N}$€£¥₹#@+&_/\\©〒])(?<!\p{N}[.,:/-])` +
   String.raw`(\d(?: \d){3,7}|\d{3}[ -]\d{3}|\d{4}[ -]\d{4}|\d{2} \d{2} \d{2}|[A-Z0-9]{3,4}-[A-Z0-9]{3,4}|\d{4,8}|[A-Z0-9]{4,8})` +
-  String.raw`(?![\p{L}\p{N}%_/\\@])(?![.,:/-]\p{N})`,
+  String.raw`(?!${WORD_LETTER})(?![\p{N}%_/\\@])(?![.,:/-]\p{N})`,
   'gu'
 );
 
@@ -152,6 +198,13 @@ export function normalizeText(text) {
   if (!text) return '';
   return text
     .replace(INVISIBLE, '')
+    // CJK sentence commas and stops stay CJK: NFKC would turn "663201，5分"
+    // into "663201,5分", which reads like a decimal number.
+    .replace(/[，､]/g, '、')
+    .replace(/[．｡]/g, '。')
+    // Full-width digits, letters and colons become ASCII, and half-width
+    // katakana becomes full-width.
+    .normalize('NFKC')
     .replace(/[\u00A0\u2007\u202F\u3000]/g, ' ')
     .replace(/\r\n?/g, '\n')
     .replace(/\b(?:https?:\/\/|www\.)[^\s<>"')\]]+/gi, ' ')
@@ -173,6 +226,8 @@ function findLabels(text) {
   for (const match of text.matchAll(LABEL)) {
     const before = text.slice(Math.max(0, match.index - 24), match.index);
     if (NOT_A_CODE_LABEL.test(before)) continue;
+    if (NOT_A_CODE_LABEL_JA.test(before)) continue;
+    if (NOT_A_CODE_AFTER_JA.test(text.slice(match.index + match[0].length, match.index + match[0].length + 8))) continue;
     if (NOT_A_CODE_WORD.test(match[0])) continue;
     // "code of conduct", "code of practice"
     if (/^\s+of\s/i.test(text.slice(match.index + match[0].length, match.index + match[0].length + 5))) continue;
@@ -236,12 +291,12 @@ function scoreTokens(full, subjectLength, html) {
     // "Your verification code is: 482913" or "Code\n482913"
     if (labelBefore !== null) {
       const between = full.slice(labelBefore.end, start);
-      if (new RegExp(`^[^\\n\\d]{0,40}?(?:${IS_WORD}\\s*[:：]?|[:：=])\\s*["'“«(\\[]?\\s*$`, 'iu').test(between) ||
-          /^\s*["'“«]?\s*$/.test(between) ||
+      if (new RegExp(`^[^\\n\\d]{0,40}?(?:${IS_WORD}\\s*[:：]?|[:：=])\\s*${OPEN_QUOTE}?\\s*$`, 'iu').test(between) ||
+          new RegExp(`^\\s*${OPEN_QUOTE}?\\s*$`, 'u').test(between) ||
           /^[ \t]*[:：]?[ \t]*\n\s*$/.test(between)) {
         score = 100;
         reason = 'label';
-      } else if (between.length <= 120 && !/[.!?]\s+\p{Lu}[^.!?]{40,}/u.test(between)) {
+      } else if (between.length <= 120 && !/[.!?]\s+\p{Lu}[^.!?]{40,}/u.test(between) && !/。[^。\n]{40,}/u.test(between)) {
         score = Math.max(score, 85 - Math.round(between.length / 6));
         reason = 'near-label';
       }
@@ -250,7 +305,8 @@ function scoreTokens(full, subjectLength, html) {
     // "482913 is your Acme code"
     if (labelAfter) {
       const between = full.slice(end, labelAfter.start);
-      if (new RegExp(`^\\s*(?:${IS_WORD})\\s[^\\n\\d]{0,40}$`, 'iu').test(between)) {
+      if (new RegExp(`^\\s*(?:${IS_WORD})\\s[^\\n\\d]{0,40}$`, 'iu').test(between) ||
+          new RegExp(`^\\s*${CLOSE_QUOTE}?\\s*(?:が|は|:)[^\\n\\d。]{0,30}$`, 'u').test(between)) {
         if (score < 100) reason = 'label-after';
         score = Math.max(score, 100);
       } else if (between.length <= 60 && score < 70) {
@@ -263,6 +319,12 @@ function scoreTokens(full, subjectLength, html) {
     if (score < 90 && intent &&
         /(?:^|[^\p{L}])(?:use|enter|type|input|paste|introduce|ingresa|introduzca|saisissez|eingeben)\s*$/iu.test(near) &&
         /^\s*(?:to|as|for|para|pour|um|per)\s/i.test(after)) {
+      score = 90;
+      reason = 'action';
+    }
+
+    // "123456 を入力してください"
+    if (score < 90 && intent && new RegExp(`^\\s*${CLOSE_QUOTE}?\\s*を\\s*(?:ご)?(?:入力|入れ|お使い|使用|使っ)`, 'u').test(after)) {
       score = 90;
       reason = 'action';
     }
@@ -310,8 +372,8 @@ function scoreTokens(full, subjectLength, html) {
     if (PROMO.test(near) || PROMO.test(after.slice(0, 30))) score -= 80;
     if (MEETING.test(before)) score -= 80;
     if (OTHER_PIN.test(near)) score -= 70;
-    if (EXPIRED_AFTER.test(after)) score -= 60;
-    if (/^\s*(?:usd|eur|gbp|cad|aud|dollars?|euros?|points|miles|pts|reviews?|items?|people|users|followers|views|steps|calories|kb|mb|gb|km|mi|ms|px)\b/i.test(after)) score -= 70;
+    if (EXPIRED_AFTER.test(after) || EXPIRED_AFTER_JA.test(after)) score -= 60;
+    if (UNIT_AFTER.test(after)) score -= 70;
     if (info.kind === 'numeric' && info.code.length === 4 && /^(?:19|20)\d\d$/.test(info.code) && !strongLabel) score -= 45;
     if (/^(\d)\1+$/.test(info.code)) score -= 30;
     if (promoEmail) score -= 50;
@@ -369,7 +431,7 @@ export function extractCode({ subject = '', text = '', html = '' } = {}) {
   if (!cleanSubject && !body) return null;
 
   const full = `${cleanSubject}\n\n${body}`;
-  const candidates = scoreTokens(full, cleanSubject.length, html);
+  const candidates = scoreTokens(full, cleanSubject.length, html ? html.normalize('NFKC') : '');
 
   // Merge repeats of the same code, keeping the best score plus a small bonus.
   const byCode = new Map();

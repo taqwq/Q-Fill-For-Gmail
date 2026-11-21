@@ -32,8 +32,33 @@ export const REQUEST = Object.freeze({
   FIND: 'find',
   CANCEL: 'cancel',
   SET_LOOKBACK: 'setLookback',
-  OPEN_SHORTCUTS: 'openShortcuts'
+  OPEN_SHORTCUTS: 'openShortcuts',
+  FILL_BLOCKED: 'fillBlocked',
+  SET_SUGGEST: 'setSuggest',
+  SET_AUTO_START: 'setAutoStart',
+  REMOVE_PAIR: 'removePair'
 });
+
+/** Host access asked for when you turn on suggestions by the field. */
+export const SUGGEST_ORIGINS = Object.freeze(['https://*/*']);
+
+/** ID of the registered suggestion content script. */
+export const SUGGEST_SCRIPT_ID = 'qfill-suggest';
+
+/** Messages between the suggestion content script and the service worker. */
+export const PAGE = Object.freeze({
+  FIELD: 'qfill:field',
+  OFFER: 'qfill:offer',
+  WITHDRAW: 'qfill:withdraw',
+  ACCEPT: 'qfill:accept',
+  DISMISS: 'qfill:dismiss'
+});
+
+/** How long an offered code stays usable after it is shown. */
+export const OFFER_TTL_MS = 5 * 60_000;
+
+/** After a suggestion search ends with nothing, wait this long before another for the same page. */
+export const SUGGEST_COOLDOWN_MS = 20_000;
 
 /** The one message the service worker sends back: a full state snapshot. */
 export const STATE = 'state';

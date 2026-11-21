@@ -1,6 +1,6 @@
 {
   "name": "q-fill-for-gmail",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Browser extension that finds the verification code in your newest Gmail message and types it into the page you are on.",
   "license": "MIT",
@@ -8,7 +8,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/qbeka/Q-Fill-For-Gmail.git"
+    "url": "git+https://github.com/taqwq/Q-Fill-For-Gmail.git"
   },
   "engines": {
     "node": ">=20"

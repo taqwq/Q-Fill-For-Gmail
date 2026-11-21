@@ -18,6 +18,9 @@ before(async () => {
   script = await readFile(join(ROOT, 'extension/content/autofill.js'), 'utf8');
   browser = await chromium.launch();
   page = await browser.newPage();
+  // fill() only types into https pages, so give the test pages an https origin.
+  await page.route('https://autofill.test/**', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body></body>' }));
+  await page.goto('https://autofill.test/');
 });
 
 after(async () => {
@@ -27,7 +30,7 @@ after(async () => {
 async function fillOn(html, code = '482913') {
   await page.setContent(`<!doctype html><body>${html}</body>`);
   await page.addScriptTag({ content: script });
-  const result = await page.evaluate(value => globalThis.__qfill.fill(value), code);
+  const result = await page.evaluate(value => globalThis.__qfill.fill(value, location.origin), code);
   const filled = await page.evaluate(() =>
     [...document.querySelectorAll('input')].filter(i => i.value && !i.defaultValue).map(i => i.name || i.id));
   return { result, filled };
@@ -85,3 +88,40 @@ test('refuses a code of the wrong length for a row of boxes', async () => {
   const { result } = await fillOn(`<div>${boxes}</div>`, '48291377');
   assert.equal(result.ok, false);
 });
+
+test('refuses to fill when the frame is not the origin that was checked', async () => {
+  await page.setContent('<!doctype html><body><label>Verification code <input name=otp autocomplete=one-time-code></label></body>');
+  await page.addScriptTag({ content: script });
+  const result = await page.evaluate(() => globalThis.__qfill.fill('482913', 'https://bank.example'));
+  assert.deepEqual(result, { ok: false, reason: 'origin' });
+  assert.equal(await page.inputValue('input'), '');
+});
+
+const MUST_NOT_FILL_JA = {
+  'card security code (セキュリティコード)': '<p>クレジットカード情報</p><label>カード番号 <input name=cardnumber></label><label>セキュリティコード <input name=securityCode maxlength=4 inputmode=numeric></label>',
+  'coupon code (クーポンコード)': '<label>メールアドレス <input type=email name=email></label><label>クーポンコード <input name=coupon></label>',
+  'postal code (郵便番号)': '<label>郵便番号 <input name=zip inputmode=numeric maxlength=7></label><label>住所 <input name=addr></label>',
+  'ATM PIN (暗証番号)': '<label>暗証番号 <input type=password name=pin maxlength=4></label>'
+};
+
+for (const [name, html] of Object.entries(MUST_NOT_FILL_JA)) {
+  test(`leaves alone: ${name}`, async () => {
+    const { result, filled } = await fillOn(html, '4829');
+    assert.equal(result.ok, false, `filled ${filled.join(', ')}`);
+    assert.deepEqual(filled, []);
+  });
+}
+
+const MUST_FILL_JA = {
+  'Japanese label with no attributes': ['<label for=c>認証コードを入力してください</label><input id=c name=c1>', 'c1'],
+  'one-time password placeholder': ['<input name=f1 placeholder="ワンタイムパスワード">', 'f1'],
+  'confirmation number beside an email field': ['<label>メールアドレス <input type=email name=email value=""></label><label>確認番号（6桁） <input name=kakunin inputmode=numeric maxlength=6></label>', 'kakunin']
+};
+
+for (const [name, [html, expected]] of Object.entries(MUST_FILL_JA)) {
+  test(`fills: ${name}`, async () => {
+    const { result, filled } = await fillOn(html);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(filled, [expected]);
+  });
+}
