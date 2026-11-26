@@ -50,3 +50,32 @@ test('ignores emails with only ordinary links', () => {
   const html = '<p>今週のおすすめ</p><a href="https://shop.test/items/123">商品を見る</a><a href="https://shop.test/">トップ</a>';
   assert.equal(pick({ html }), null);
 });
+
+test('never picks a link that deletes, cancels, pays or changes something', () => {
+  for (const text of [
+    'Click to confirm account deletion https://acme.test/delete/confirm?t=1',
+    'アカウント削除の確認: 以下のURLを開くと削除が完了します https://acme.test/account/confirm?token=1',
+    'ご注文内容を確認する https://acme.test/order/123?key=9',
+    'Confirm your payment https://acme.test/pay/confirm?id=1',
+    'メールアドレス変更を確認するには https://acme.test/email/change/confirm?token=1',
+    'Confirm cancellation of your subscription https://acme.test/sub/confirm?token=1',
+    'パスワード再設定はこちら https://acme.test/password/reset?token=1'
+  ]) assert.equal(pick({ text }), null, text);
+});
+
+test('a short button text counts only with a confirmation path', () => {
+  assert.equal(pick({ html: '<a href="https://acme.test/verify?t=1">Verify</a>' }), 'https://acme.test/verify?t=1');
+  assert.equal(pick({ html: '<a href="https://acme.test/items/1">確認する</a>' }), null);
+});
+
+test('a sign-up sentence one line above the link still counts', () => {
+  const text = '以下のURLから本登録を完了してください。\nURL: https://acme.test/r/abc?key=1';
+  assert.equal(pick({ text }), 'https://acme.test/r/abc?key=1');
+});
+
+test('stays fast on a large body full of unclosed links', () => {
+  const html = '<a href="https://acme.test/a?token=1">本登録 '.repeat(5000);
+  const start = Date.now();
+  extractVerifyLink({ html });
+  assert.ok(Date.now() - start < 1000, `took ${Date.now() - start} ms`);
+});
