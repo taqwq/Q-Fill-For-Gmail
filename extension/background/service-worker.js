@@ -133,20 +133,64 @@ function describe(error) {
  * @returns {Promise<string[]>}
  */
 async function tabSites(tabId) {
-  let top = '';
-  try {
-    top = siteOfUrl((await chrome.tabs.get(tabId)).url || '');
-  } catch {
-    top = '';
-  }
+  return (await tabInfo(tabId)).sites;
+}
+
+/**
+ * The sites a code could go to, the page's own site, and whether any frame
+ * has a code field.
+ * @param {number} tabId
+ */
+async function tabInfo(tabId) {
+  const top = await pageSite(tabId);
   const fields = await fieldSites(tabId);
-  return [...new Set([...fields, top].filter(Boolean))];
+  return { sites: [...new Set([...fields, top].filter(Boolean))], top, hasField: fields.length > 0 };
+}
+
+/**
+ * Registrable domain of the page in the tab, '' when not an https page.
+ * @param {number} tabId
+ */
+async function pageSite(tabId) {
+  try {
+    return siteOfUrl((await chrome.tabs.get(tabId)).url || '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Sets hit.action, hit.site and hit.linkSite and returns the verdict.
+ *
+ * A message with a code is filled when the page has a code field. A message
+ * with a confirmation link and no field to fill opens the link, and only when
+ * the link goes to the page's own site: the sender check alone would let a
+ * real sender's email send you anywhere.
+ * @param {any} hit
+ * @param {{ sites: string[], top: string, hasField: boolean }} info
+ * @param {string[]} trustedPairs
+ */
+function classifyHit(hit, info, trustedPairs) {
+  hit.action = hit.link && (!hit.code || !info.hasField) ? 'link' : 'code';
+  if (hit.action === 'code') {
+    const best = bestVerdict(hit, info.sites, trustedPairs);
+    hit.site = best.site;
+    return best.verdict;
+  }
+  hit.site = info.top;
+  hit.linkSite = siteOfUrl(hit.link);
+  const result = verdict(hit, info.top, trustedPairs);
+  if (AUTO_FILL.has(result) && hit.linkSite !== info.top) return 'link-host';
+  return result;
 }
 
 /** What the popup shows about a hit. Never sent to a page. */
 function describeHit(hit) {
   return {
     code: hit.code,
+    link: hit.action === 'link' ? hit.link : '',
+    linkSite: hit.action === 'link' ? hit.linkSite || '' : '',
+    action: hit.action || 'code',
     messageId: hit.id,
     senderDomain: hit.sender?.domain || '',
     verified: Boolean(hit.sender?.verified),
@@ -189,7 +233,7 @@ async function startFind(tabId, source) {
 
   let result;
   try {
-    const sites = await tabSites(tabId);
+    const info = await tabInfo(tabId);
     const hit = await findNewestCode(
       {
         getToken: () => getAccessToken({ interactive: true }),
@@ -203,6 +247,7 @@ async function startFind(tabId, source) {
         pollMs: POLL_INTERVAL_MS,
         maxPerCheck: MAX_MESSAGES_PER_CHECK,
         skipIds: await getUsedMessageIds(),
+        links: true,
         signal: controller.signal,
         // A blocked code does not end the wait: the right one may still be on
         // its way, and anyone can mail you a code-shaped message. The popup
@@ -211,15 +256,11 @@ async function startFind(tabId, source) {
           current.blocked = found ? { tabId, ...describeHit(found) } : null;
           if (found && !current.blockedToastShown) {
             current.blockedToastShown = true;
-            showToast(tabId, t('toastBlockedWaiting'), 'info', 0);
+            showToast(tabId, t(found.action === 'link' ? 'toastBlockedWaitingLink' : 'toastBlockedWaiting'), 'info', 0);
           }
           broadcast();
         },
-        classify: found => {
-          const best = bestVerdict(found, sites, settings.trustedPairs);
-          found.site = best.site;
-          return best.verdict;
-        },
+        classify: found => classifyHit(found, info, settings.trustedPairs),
         onProgress: progress => {
           current.phase = progress.phase;
           current.deadline = progress.deadline;
@@ -238,7 +279,11 @@ async function startFind(tabId, source) {
     } else if (!AUTO_FILL.has(hit.verdict)) {
       // The code stays in the popup. The page only learns that Q-Fill stopped.
       result = { status: 'blocked', tabId, ...describeHit(hit) };
-      await showToast(tabId, t('toastBlocked'), 'error', 6000);
+      await showToast(tabId, t(hit.action === 'link' ? 'toastBlockedLink' : 'toastBlocked'), 'error', 6000);
+    } else if (hit.action === 'link') {
+      current.phase = PHASE.FILLING;
+      await broadcast();
+      result = await openHit(tabId, hit);
     } else {
       current.phase = PHASE.FILLING;
       await broadcast();
@@ -290,6 +335,30 @@ async function fillHit(tabId, hit) {
 }
 
 /**
+ * Opens a confirmation link in a new tab next to the page, after checking
+ * that the page still shows the site the link was checked against.
+ * @param {number} tabId
+ * @param {any} hit
+ */
+async function openHit(tabId, hit) {
+  let tab = null;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch {
+    tab = null;
+  }
+  if (!tab || !hit.site || siteOfUrl(tab.url || '') !== hit.site || !hit.link) {
+    if (tab) await showToast(tabId, t('toastOriginChanged'), 'error', 6000);
+    return { status: 'found', reason: tab ? 'origin' : 'gone', tabId, ...describeHit(hit) };
+  }
+  // Clear a waiting message first: the page stays open behind the new tab.
+  await showToast(tabId, '', 'info');
+  await chrome.tabs.create({ url: hit.link, index: tab.index + 1, openerTabId: tabId, windowId: tab.windowId, active: true });
+  await markMessageUsed(hit.id);
+  return { status: 'opened', reason: '', tabId, ...describeHit(hit) };
+}
+
+/**
  * Fills the code the popup is showing as blocked, after you confirmed it.
  * Re-checks that the tab still shows the same site.
  * @param {boolean} remember - Also trust this sender for this site from now on.
@@ -303,9 +372,10 @@ async function fillBlocked(remember) {
     job.controller.abort();
   }
   if (!last || last.status !== 'blocked' || !last.site || !Number.isInteger(last.tabId)) return;
-  if (!['mismatch', 'unverified', 'spam'].includes(last.verdict)) return;
+  const isLink = last.action === 'link';
+  if (!['mismatch', 'unverified', 'spam', ...(isLink ? ['link-host'] : [])].includes(last.verdict)) return;
 
-  const sites = await tabSites(last.tabId);
+  const sites = isLink ? [await pageSite(last.tabId)] : await tabSites(last.tabId);
   if (!sites.includes(last.site)) {
     await setLastResult({ ...last, status: 'found', reason: 'origin', at: Date.now() });
     return broadcast();
@@ -320,6 +390,9 @@ async function fillBlocked(remember) {
   const hit = {
     id: last.messageId,
     code: last.code,
+    link: last.link,
+    linkSite: last.linkSite,
+    action: last.action,
     site: last.site,
     subject: last.subject,
     receivedAt: last.receivedAt,
@@ -327,7 +400,7 @@ async function fillBlocked(remember) {
     sender: { domain: last.senderDomain, verified: last.verified },
     verdict: last.verdict
   };
-  const result = await fillHit(last.tabId, hit);
+  const result = isLink ? await openHit(last.tabId, hit) : await fillHit(last.tabId, hit);
   await setLastResult({ ...result, confirmed: true, at: Date.now() });
   await broadcast();
 }

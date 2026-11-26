@@ -505,6 +505,14 @@ input {
   user-select: all;
 }
 
+/* A link's host, which can be long: smaller, no spacing, wraps. */
+.code.link {
+  font-size: 15px;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
 .result-note {
   margin: 8px 0 0;
   color: var(--muted);

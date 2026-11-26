@@ -21,7 +21,7 @@ Q-Fill uses Google's `gmail.readonly` scope. It cannot send, change, label or de
 | Your look-back setting | Browser local storage | Until you change it or remove the extension |
 | Your Gmail address | Browser local storage | Until you disconnect |
 | Google access token | Browser session storage (memory only) | Until it expires, you disconnect, or the browser closes |
-| The last code found, its sender and subject | Browser session storage (memory only) | Until the next run, you disconnect, or the browser closes |
+| The last code or confirmation link found, its sender and subject | Browser session storage (memory only) | Until the next run, you disconnect, or the browser closes |
 | IDs of emails whose code was filled | Browser session storage (memory only) | Until you disconnect or the browser closes |
 | Sender-to-site pairs you chose to trust, such as `bank.co.jp -> bankpay.jp` | Browser local storage | Until you remove them in Settings or remove the extension |
 | Whether suggestions and "start looking right away" are on | Browser local storage | Until you change them or remove the extension |

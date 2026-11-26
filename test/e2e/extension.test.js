@@ -21,6 +21,24 @@ beforeEach(async () => {
   await env.worker.evaluate(() => { globalThis.__inbox.length = 0; });
 });
 
+/** Waits for a tab showing (or loading) `url`, as Chrome reports it. */
+async function waitForTab(url, timeout = 10_000) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const tab = await env.worker.evaluate(async target => {
+      const tabs = await chrome.tabs.query({});
+      return tabs.find(t => t.url === target || t.pendingUrl === target) ?? null;
+    }, url);
+    if (tab) return tab;
+    if (Date.now() > deadline) throw new Error(`No tab for ${url}`);
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+}
+
+function closeTab(id) {
+  return env.worker.evaluate(tabId => chrome.tabs.remove(tabId), id);
+}
+
 async function open(path) {
   const page = await env.context.newPage();
   await page.goto(`${base}/${path}`);
@@ -150,6 +168,43 @@ test('on a page with no code field, finds the code but changes nothing', async (
   assert.equal(await page.inputValue('#email'), '');
   const toast = await page.evaluate(() => Boolean(document.getElementById('qfill-toast-host')));
   assert.ok(toast, 'a toast explains what happened');
+  await page.close();
+});
+
+test('a confirmation link to the same site opens in a new tab next to the page', async () => {
+  const link = `${base}/single.html?verify=abc123`;
+  await addEmail(env.worker, '仮登録のお知らせ', `以下のURLをクリックして本登録を完了してください。
+${link}`);
+  const page = await open('no-field.html');
+  const result = await runFind(env, page);
+  assert.equal(result.status, 'opened');
+  assert.equal(result.action, 'link');
+  const tab = await waitForTab(link);
+  const pageTab = await waitForTab(page.url());
+  assert.equal(tab.index, pageTab.index + 1);
+  assert.equal(tab.openerTabId, pageTab.id);
+  await closeTab(tab.id);
+  await page.close();
+});
+
+test('a confirmation link to another site is not opened until you confirm', async () => {
+  const link = 'https://click.mailer.test/l/abc?verify=1';
+  await addEmail(env.worker, 'Confirm your email', `Please confirm your email address:
+${link}`);
+  const page = await open('no-field.html');
+  await findUntilBlocked(env, page);
+  const popup = await env.context.newPage();
+  await popup.goto(`chrome-extension://${env.extensionId}/popup/popup.html?view=page`);
+  await popup.locator('#confirm').waitFor();
+  assert.equal(await popup.textContent('#confirmLink'), 'click.mailer.test');
+  assert.equal(await popup.isVisible('#rememberRow'), false);
+  assert.equal(await waitForTab(link, 1000).catch(() => null), null, 'not opened before you confirm');
+  await popup.click('#fillAnyway');
+  const result = await waitForResult(env.worker);
+  assert.equal(result.status, 'opened');
+  const tab = await waitForTab(link);
+  await closeTab(tab.id);
+  await popup.close();
   await page.close();
 });
 

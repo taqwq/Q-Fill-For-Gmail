@@ -8,13 +8,15 @@
  */
 
 import { extractCode } from './extract.js';
+import { extractVerifyLink } from './links.js';
 import { parseMessage } from './mime.js';
 import { AUTO_FILL, checkSender } from './sender.js';
 
 /**
  * @typedef {object} Hit
  * @property {string} id - Gmail message ID.
- * @property {string} code
+ * @property {string} code - '' when the message has only a link.
+ * @property {string} [link] - Confirmation link, when options.links is on.
  * @property {number} score
  * @property {string} reason
  * @property {number} receivedAt
@@ -72,6 +74,8 @@ function abortError() {
  * @param {boolean} [options.stopOnBlocked] - Return a blocked code as soon as a
  *   complete check finds one and nothing better, instead of waiting for a code
  *   that may be filled. The popup uses this to explain the problem at once.
+ * @param {boolean} [options.links] - Also count messages with a confirmation
+ *   link (see links.js) and put the link on hit.link.
  * @param {Set<string>} [options.skipIds] - Messages whose code was already used.
  * @param {AbortSignal} [options.signal]
  * @param {(progress: { phase: 'checking'|'waiting', deadline: number, blocked: Hit|null }) => void} [options.onProgress]
@@ -83,7 +87,7 @@ function abortError() {
 export async function findNewestCode(deps, options) {
   const now = deps.now ?? Date.now;
   const wait = deps.sleep ?? sleep;
-  const { lookbackMs, waitMs, pollMs, maxPerCheck, skipIds = new Set(), signal, onProgress, onBlocked, classify, stopOnBlocked = false } = options;
+  const { lookbackMs, waitMs, pollMs, maxPerCheck, skipIds = new Set(), links = false, signal, onProgress, onBlocked, classify, stopOnBlocked = false } = options;
   if (typeof classify !== 'function') throw new TypeError('findNewestCode needs options.classify');
 
   const startedAt = now();
@@ -135,16 +139,18 @@ export async function findNewestCode(deps, options) {
           return;
         }
         const match = extractCode(message);
-        if (!match) {
+        const link = links ? extractVerifyLink(message) : null;
+        if (!match && !link) {
           seen.set(id, null);
           return;
         }
         /** @type {Hit} */
         const hit = {
           id,
-          code: match.code,
-          score: match.score,
-          reason: match.reason,
+          code: match?.code ?? '',
+          score: match?.score ?? 0,
+          reason: match?.reason ?? 'link',
+          link: link?.url ?? '',
           receivedAt: message.receivedAt,
           from: message.from,
           subject: message.subject,

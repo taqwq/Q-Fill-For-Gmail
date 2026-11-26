@@ -2,6 +2,12 @@
 
 All notable changes to Q-Fill are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Confirmation links: on a page with no code field, a sign-up or verification link from the same site (such as 本登録を完了する or Verify your email) opens in a new tab next to the page. It opens on its own only when the authenticated sender, the link and the page share one registrable domain; a link to another domain waits for "Open anyway" in the popup. Unsubscribe, help and "if this wasn't you" links are never picked.
+
 ## [2.1.0] - 2026-11-21 (fork)
 
 ### Added

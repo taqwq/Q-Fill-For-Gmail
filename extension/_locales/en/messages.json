@@ -68,7 +68,7 @@
     "message": "Fill code"
   },
   "fillHint": {
-    "message": "Open the page that asks for a code, then press Fill. Q-Fill only fills a code sent by the same site, and waits if the email has not arrived yet."
+    "message": "Open the page that asks for the code or link, then press Fill. Q-Fill fills only codes from the same site, opens a confirmation link in a new tab only when it goes to the same site, and waits if the email has not arrived yet."
   },
   "shortcutNone": {
     "message": "Set a keyboard shortcut"
@@ -404,5 +404,32 @@
   },
   "toastBlockedWaiting": {
     "message": "Found a code from a different site or an unverified sender. Still waiting for the right one; open Q-Fill to review it."
+  },
+  "resultOpened": {
+    "message": "Opened the link in a new tab"
+  },
+  "resultFoundLink": {
+    "message": "Found, not opened"
+  },
+  "blockedLinkHost": {
+    "message": "Link goes to another site"
+  },
+  "blockedLinkHostNote": {
+    "message": "This email was sent by the site you are on, but its link goes to another site. Mail services sometimes route links through their own domain to count clicks. Check where it goes before you open it."
+  },
+  "blockedNoSiteLinkNote": {
+    "message": "Q-Fill opens a confirmation link only while an https page is showing. Press it on the page of the site you are signing up to."
+  },
+  "confirmLink": {
+    "message": "Link goes to"
+  },
+  "openAnyway": {
+    "message": "Open anyway"
+  },
+  "toastBlockedLink": {
+    "message": "Q-Fill found a confirmation link but did not open it. Open Q-Fill to see why."
+  },
+  "toastBlockedWaitingLink": {
+    "message": "Found a link to another site, or from a sender that could not be checked. Waiting for the right email. Open Q-Fill to review it."
   }
 }

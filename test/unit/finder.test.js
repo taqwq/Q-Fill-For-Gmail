@@ -247,3 +247,13 @@ test('refuses to run without a classify callback', async () => {
   const { deps } = fakeGmail(T, () => []);
   await assert.rejects(findNewestCode(deps, { ...options, classify: undefined }), TypeError);
 });
+
+test('counts a message with only a confirmation link when links is on', async () => {
+  const inbox = [message('reg', T - 60_000, '仮登録のお知らせ', '本登録を完了してください。\nhttps://acme.test/regist/confirm?key=abc')];
+  const { deps } = fakeGmail(T, () => inbox);
+  assert.equal(await findNewestCode(deps, { ...options, waitMs: 0 }), null);
+  const hit = await findNewestCode(deps, { ...options, waitMs: 0, links: true });
+  assert.equal(hit.id, 'reg');
+  assert.equal(hit.code, '');
+  assert.equal(hit.link, 'https://acme.test/regist/confirm?key=abc');
+});

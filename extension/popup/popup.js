@@ -21,6 +21,8 @@ let editingClient = false;
 let countdownTimer = 0;
 /** The popup starts a search on its own at most once per opening. */
 let autoStarted = false;
+/** What the Copy button copies: the code, or the confirmation link. */
+let shownValue = '';
 
 if (new URLSearchParams(location.search).get('view') === 'page') document.body.classList.add('page');
 
@@ -159,9 +161,12 @@ function renderResult(last) {
   box.hidden = !last;
   if (!last) return;
 
-  const hasCode = last.status === 'filled' || last.status === 'found' || last.status === 'blocked';
+  const hasCode = ['filled', 'found', 'blocked', 'opened'].includes(last.status);
+  const isLink = last.action === 'link';
+  shownValue = hasCode ? (isLink ? last.link : last.code) || '' : '';
   $('codeRow').hidden = !hasCode;
-  $('resultCode').textContent = hasCode ? last.code : '';
+  $('resultCode').textContent = hasCode ? (isLink ? linkLabel(last.link) : last.code) : '';
+  $('resultCode').classList.toggle('link', isLink);
   // The verified domain, never the display name, which anyone can forge.
   $('resultMeta').textContent = hasCode && last.senderDomain !== undefined
     ? t('resultFromSender', [last.senderDomain || t('unknownSender'), timeAgo(last.receivedAt)])
@@ -179,8 +184,12 @@ function renderResult(last) {
       badge = t('resultFilled');
       tone = 'success';
       break;
+    case 'opened':
+      badge = t('resultOpened');
+      tone = 'success';
+      break;
     case 'found':
-      badge = t('resultFound');
+      badge = t(isLink ? 'resultFoundLink' : 'resultFound');
       tone = 'error';
       note = t({ 'no-field': 'resultNoField', blocked: 'resultBlocked', gone: 'resultGone', origin: 'resultOrigin' }[last.reason] || 'resultRejected');
       break;
@@ -189,14 +198,16 @@ function renderResult(last) {
         mismatch: 'blockedMismatch',
         unverified: 'blockedUnverified',
         spam: 'blockedSpam',
-        'no-site': 'blockedNoSite'
+        'no-site': 'blockedNoSite',
+        'link-host': 'blockedLinkHost'
       }[last.verdict] || 'blockedMismatch');
       tone = 'error';
       note = t({
         mismatch: 'blockedMismatchNote',
         unverified: 'blockedUnverifiedNote',
         spam: 'blockedSpamNote',
-        'no-site': 'blockedNoSiteNote'
+        'no-site': isLink ? 'blockedNoSiteLinkNote' : 'blockedNoSiteNote',
+        'link-host': 'blockedLinkHostNote'
       }[last.verdict] || 'blockedMismatchNote');
       break;
     case 'none':
@@ -219,16 +230,20 @@ function renderResult(last) {
 
 function renderConfirm(last) {
   const box = $('confirm');
-  const canFill = last.status === 'blocked' && Boolean(last.site) && ['mismatch', 'unverified', 'spam'].includes(last.verdict);
+  const isLink = last.action === 'link';
+  const allowed = ['mismatch', 'unverified', 'spam', ...(isLink ? ['link-host'] : [])];
+  const canFill = last.status === 'blocked' && Boolean(last.site) && allowed.includes(last.verdict);
   box.hidden = last.status !== 'blocked';
   if (box.hidden) return;
 
   $('confirmSender').textContent = last.senderDomain || t('unknownSender');
   $('confirmSite').textContent = last.site || t('unknownSite');
+  $('confirmLinkRow').hidden = !isLink;
+  $('confirmLink').textContent = isLink ? linkLabel(last.link) : '';
 
   const button = $('fillAnyway');
   button.hidden = !canFill;
-  button.textContent = t('fillAnyway', last.site || '');
+  button.textContent = isLink ? t('openAnyway') : t('fillAnyway', last.site || '');
 
   // Only a sender Gmail authenticated may be remembered.
   const rememberRow = $('rememberRow');
@@ -261,6 +276,15 @@ function renderSettings() {
   }));
   $('pairsEmpty').hidden = Boolean(state.trustedPairs?.length);
   $('settingsRedirect').textContent = state.redirectUri;
+}
+
+/** The host of a link, which is what you check before opening it. */
+function linkLabel(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
 }
 
 function timeAgo(ms) {
@@ -359,7 +383,7 @@ $('disconnectButton').addEventListener('click', () => {
   send(REQUEST.DISCONNECT);
 });
 
-$('copyCode').addEventListener('click', () => copyText(state?.last?.code, $('copyCode')));
+$('copyCode').addEventListener('click', () => copyText(shownValue, $('copyCode')));
 
 for (const button of document.querySelectorAll('[data-copy]')) {
   button.addEventListener('click', () => copyText($(button.dataset.copy).textContent, button));
